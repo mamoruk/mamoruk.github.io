@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>虹桥和著一期 - 毛坯结构VR存档</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* 标题样式 */
+        .title {
+            text-align: center;
+            margin: 40px 0 30px;
+            color: #2c3e50;
+            line-height: 1.6;
+        }
+
+        .title h1 {
+            font-size: 26px;
+            margin-bottom: 8px;
+            color: #2d3748;
+        }
+
+        .title p {
+            font-size: 16px;
+            color: #718096;
+        }
+		.wx {
+            font-size: 20px;
+			font-weight:bold;
+            color: #f15b6c;
+			text-align: center;
+            margin: 10px 0 30px;
+            line-height: 1.6;
+        }
+
+        /* 按钮网格 */
+		.grid1 {
+            display: grid;
+            grid-template-columns: repeat(1, 1fr);
+            gap: 16px;
+        }
+        .grid2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+		.grid3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        /* 按钮样式 */
+        .btn {
+            display: block;
+            background: #4299e1;
+            color: white;
+            text-align: center;
+            padding: 22px 16px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-size: 18px;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(66, 153, 225, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: #3182ce;
+            transform: translateY(-2px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        /* 不同户型颜色区分 */
+        .btn-94 { background: #6950a1; }
+        .btn-104 { background: #fcaf17; }
+        .btn-128 { background: #f15b6c; }
+		.btn-other { background: #00a6ac; }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="title">
+            <h1>虹桥和著一期</h1>
+            <p>=====毛坯结构VR全景&照片存档=====</p>
+        </div>
+        <div class="grid2">
+			<a href="104a.html" class="btn btn-104">104-B1户型-边套VR</a>
+            <a href="104a2.html" class="btn btn-104">104-B1户型-边套VR2</a>
+			<a href="104a-img.html" class="btn btn-104">104边套 户型照片</a>
+			<a href="104b.html" class="btn btn-104">104-B1户型-中间套VR</a>
+            <a href="104b2.html" class="btn btn-104">104-B户型-中间套VR</a>
+			<a href="104b-img.html" class="btn btn-104">104-B户型-中间套照片</a>
+			<a href="128a.html" class="btn btn-128">128-A1户型-中间套VR</a>
+        </div>
+		
+        <div class="title">
+            <p>==========楼栋进度更新==========</p>
+        </div>
+		
+		<div class="grid1">
+            <a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=BB08J2" class="btn btn-other">楼栋进度汇总</a>
+        </div>
+		        <div class="title">
+            <p>==========楼栋家书存档==========</p>
+        </div>
+		<div class="grid3">
+            <a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=ae8pj7" class="btn btn-128">12栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=mz4xva" class="btn btn-128">11栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=0h3dap" class="btn btn-104">10栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=zerib2" class="btn btn-104">8栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=akuyxs" class="btn btn-128">7栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=gif9zw" class="btn btn-104">6栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=o246oo" class="btn btn-94">3栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=ibz9d4" class="btn btn-104">2栋</a>
+			<a href="https://docs.qq.com/sheet/DTU9FT25kUHJvaHZu?tab=o8ydci" class="btn btn-other">样板间</a>
+        </div>
+    </div>
+</body>
+</html>

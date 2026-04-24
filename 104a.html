@@ -1,0 +1,103 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR全景缓存版</title>
+    <link rel="stylesheet" href="js/pannellum.css"/>
+    <script type="text/javascript" src="js/pannellum.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+        #panorama { width: 100%; height: 100%; }
+        
+        .control {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            background: rgba(255,255,255,0.92);
+            padding: 8px 12px;
+            border-radius: 10px;
+        }
+        select {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #bbb;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="control">
+    <select id="sceneSelect"></select>
+</div>
+
+<div id="panorama"></div>
+
+<script>
+// ==============================================
+// 🔥 只改这里 👇 全部自动生成
+const SCENES = [
+    ["104a-dtt", "电梯厅"],
+    ["104a-cf", "厨房"],
+    ["104a-kct", "客餐厅"],
+    ["104a-yt", "阳台"],
+    ["104a-bcw", "北次卧"],
+    ["104a-gw", "公卫"],
+    ["104a-ncw", "南次卧"],
+    ["104a-zw", "主卧"],
+    ["104a-zws", "主卫"]
+];
+
+const IMAGES = [
+    "pano_f.jpg",
+    "pano_r.jpg",
+    "pano_b.jpg",
+    "pano_l.jpg",
+    "pano_u.jpg",
+    "pano_d.jpg"
+];
+// ==============================================
+
+let viewer = null;
+const select = document.getElementById("sceneSelect");
+
+// 自动生成下拉菜单
+SCENES.forEach(([folder, name]) => {
+    const opt = document.createElement("option");
+    opt.value = folder;
+    opt.textContent = name;
+    select.appendChild(opt);
+});
+
+// 加载场景（安全重建，图片仍被浏览器缓存）
+function loadScene(folder) {
+    // 销毁旧实例
+    if (viewer) {
+        viewer.destroy();
+        viewer = null;
+    }
+
+    // 生成新的全景配置
+    const cubeMap = IMAGES.map(img => `${folder}/${img}`);
+    viewer = pannellum.viewer('panorama', {
+        type: "cubemap",
+        cubeMap: cubeMap,
+        autoLoad: true,
+		title: "104 b1户型 边套",
+    });
+}
+
+// 首次加载
+loadScene(SCENES[0][0]);
+
+// 切换
+select.addEventListener("change", function () {
+    loadScene(this.value);
+});
+</script>
+</body>
+</html>
