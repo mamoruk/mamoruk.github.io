@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>公众号文章编辑器</title>
+  <title>三栏富文本编辑器 - iPhone 15真实预览版</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
   <!-- 引入highlight.js用于语法高亮 -->
@@ -229,14 +229,15 @@
         height: 30px;
       }
       
-      /* 终极修复版语法高亮 - 零偏移 */
+      /* 彻底解决双重滚动条问题 - 最终版 */
       .html-editor-container {
         width: 100%;
         height: 100%;
-        overflow: hidden;
+        overflow: hidden !important; /* 关键：外层容器完全禁止滚动 */
         background: #1e1e2e;
       }
       
+      /* 唯一的滚动容器 - 只有这一个会显示滚动条 */
       .html-scroll-container {
         display: flex;
         width: 100%;
@@ -257,6 +258,8 @@
         border-right: 1px solid #313244;
         background: #181825;
         white-space: nowrap;
+        min-height: 100%;
+        overflow: visible !important; /* 关键：禁止行号区域滚动 */
       }
       
       .line-number {
@@ -286,16 +289,18 @@
       .code-wrapper {
         flex: 1;
         position: relative;
-        overflow: hidden;
+        min-height: 100%;
+        background: #1e1e2e;
+        overflow: visible !important; /* 关键：禁止代码包装器滚动 */
       }
       
-      /* 语法高亮层和输入层 - 像素级精确匹配 */
+      /* 语法高亮层和输入层 - 彻底禁止滚动 */
       .code-highlight, .code-textarea {
         position: absolute;
         top: 0;
         left: 0;
         width: 100%;
-        height: 100%;
+        min-height: 100%;
         padding: 1rem;
         padding-left: 0.75rem;
         font-family: 'Fira Code', Consolas, Monaco, monospace;
@@ -307,10 +312,10 @@
         margin: 0;
         border: none;
         outline: none;
-        overflow-x: auto;
-        overflow-y: visible;
         word-wrap: normal;
-        vertical-align: top !important; /* 关键：强制顶部对齐 */
+        vertical-align: top !important;
+        /* 关键：彻底禁止这两个元素的滚动 */
+        overflow: hidden !important;
       }
       
       .code-highlight {
@@ -320,14 +325,14 @@
       }
       
       .code-textarea {
-        color: transparent !important; /* 输入层文字完全透明 */
+        color: transparent !important;
         background: transparent !important;
-        caret-color: #cdd6f4 !important; /* 只显示光标 */
-        resize: none;
+        caret-color: #cdd6f4 !important;
+        resize: none !important; /* 关键：禁止textarea调整大小 */
         z-index: 2;
       }
       
-      /* 统一选择样式 - 彻底解决双层显示问题 */
+      /* 统一选择样式 */
       .code-textarea::selection {
         background: rgba(205, 214, 244, 0.2) !important;
         color: transparent !important;
@@ -517,7 +522,7 @@
     <!-- 调整栏2 -->
     <div class="resizer w-1" id="resizer2"></div>
     
-    <!-- HTML源码区 - 终极修复版 -->
+    <!-- HTML源码区 - 彻底解决双重滚动条 -->
     <div class="flex flex-col h-full" id="htmlPanel">
       <div class="panel-header px-4 py-2 border-b border-gray-700/50 flex items-center justify-between">
         <h2 class="font-medium flex items-center gap-2">
@@ -527,15 +532,15 @@
         <span class="text-xs text-gray-400" id="htmlSize">0 字符</span>
       </div>
       <div class="flex-1 overflow-hidden relative">
-        <div class="html-editor-container html-scrollbar">
-          <!-- 滚动容器 - 行号和代码共享此容器的滚动 -->
-          <div class="html-scroll-container" id="htmlScrollContainer">
+        <div class="html-editor-container">
+          <!-- 唯一的滚动容器 - 只有这一个会显示滚动条 -->
+          <div class="html-scroll-container html-scrollbar" id="htmlScrollContainer">
             <!-- 行号列 -->
             <div class="line-numbers" id="lineNumbers"></div>
             
             <!-- 代码包装器 -->
             <div class="code-wrapper">
-              <!-- 语法高亮层（只显示彩色文字）- 移除了pre和code标签 -->
+              <!-- 语法高亮层（只显示彩色文字） -->
               <div class="code-highlight" id="codeHighlight"></div>
               <!-- 实际输入层（只接收输入和显示光标） -->
               <textarea 
@@ -598,7 +603,8 @@
 <li><strong>HTML语法高亮</strong>：代码带有漂亮的语法高亮显示</li>
 <li><strong>智能定位</strong>：选中文字后，源码区会显示绿色定位点</li>
 <li><strong>完美对齐</strong>：行号与代码行精确对齐，无错位</li>
-<li><strong>宽敞的代码区</strong>：右侧HTML区充分利用宽度，显示更多内容</li>
+<li><strong>无限行数支持</strong>：支持任意行数的代码，不再有33行限制</li>
+<li><strong>单一滚动条</strong>：只有一个滚动条，滚动体验流畅</li>
 <li><strong>可调整面板</strong>：自由拖拽调整三个区域的大小</li>
 </ul>
 <h2>使用示例</h2>
@@ -713,7 +719,7 @@ ${content}
       htmlSize.textContent = `${html.length} 字符`;
     }
 
-    // 更新代码高亮 - 终极修复版
+    // 更新代码高亮 - 最终修复版
     function updateCodeHighlight() {
       const html = htmlSource.value;
       // 使用highlight.js进行语法高亮
@@ -722,18 +728,11 @@ ${content}
       // 强制移除所有可能的前导和尾随空白字符
       const cleanHighlighted = highlighted.replace(/^\s+/, '').replace(/\s+$/, '');
       
-      // 直接插入到div中，不使用pre和code标签
+      // 直接插入到div中
       codeHighlight.innerHTML = cleanHighlighted;
       
-      // 强制同步滚动
-      syncScroll();
-    }
-
-    // 强制同步滚动 - 确保绝对对齐
-    function syncScroll() {
-      codeHighlight.scrollTop = htmlSource.scrollTop;
-      codeHighlight.scrollLeft = htmlSource.scrollLeft;
-      lineNumbers.scrollTop = htmlSource.scrollTop;
+      // 强制同步代码包装器的高度
+      codeHighlight.parentElement.style.height = `${htmlSource.scrollHeight}px`;
     }
 
     // 更新行号
@@ -939,9 +938,12 @@ ${content}
       updateLineNumbers();
     });
 
-    // 同步滚动事件 - 使用requestAnimationFrame确保流畅
-    htmlSource.addEventListener('scroll', () => {
-      requestAnimationFrame(syncScroll);
+    // 同步滚动事件 - 只同步高亮层的位置
+    htmlScrollContainer.addEventListener('scroll', () => {
+      requestAnimationFrame(() => {
+        codeHighlight.scrollTop = htmlScrollContainer.scrollTop;
+        codeHighlight.scrollLeft = htmlScrollContainer.scrollLeft;
+      });
     });
 
     // 复制HTML按钮
