@@ -2,11 +2,10 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>三栏富文本编辑器 - iPhone 15真实预览版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>三栏富文本编辑器 - 终极体验版</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
-  <!-- 引入highlight.js用于语法高亮 -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/languages/xml.min.js"></script>
@@ -18,23 +17,9 @@
           colors: {
             primary: '#6366f1',
             secondary: '#8b5cf6',
-            dark: {
-              100: '#1e293b',
-              200: '#1e293b',
-              300: '#0f172a',
-              400: '#020617'
-            },
-            editor: {
-              bg: '#ffffff',
-              text: '#1e293b',
-              selection: '#dbeafe',
-              toolbar: '#f1f5f9'
-            },
-            iphone: {
-              frame: '#1a1a1a',
-              bezel: '#000000',
-              screen: '#ffffff'
-            }
+            dark: { 100: '#1e293b', 200: '#1e293b', 300: '#0f172a', 400: '#020617' },
+            editor: { bg: '#ffffff', text: '#1e293b', selection: '#dbeafe', toolbar: '#f1f5f9' },
+            iphone: { frame: '#1a1a1a', bezel: '#000000', screen: '#ffffff' }
           },
           fontFamily: {
             mono: ['Fira Code', 'Consolas', 'Monaco', 'monospace'],
@@ -47,529 +32,138 @@
   
   <style type="text/tailwindcss">
     @layer utilities {
-      .content-auto {
-        content-visibility: auto;
-      }
-      .editor-scrollbar::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      .editor-scrollbar::-webkit-scrollbar-track {
-        background: #f1f5f9;
-      }
-      .editor-scrollbar::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 3px;
-      }
-      .editor-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-      }
-      .html-scrollbar::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      .html-scrollbar::-webkit-scrollbar-track {
-        background: #1e1e2e;
-      }
-      .html-scrollbar::-webkit-scrollbar-thumb {
-        background: #45475a;
-        border-radius: 3px;
-      }
-      .html-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #585b70;
-      }
-      .resizer {
-        cursor: col-resize;
-        background: linear-gradient(to right, transparent, #e2e8f0, transparent);
-        transition: all 0.2s ease;
-      }
-      .resizer:hover {
-        background: linear-gradient(to right, transparent, #6366f1, transparent);
-      }
-      .panel-header {
-        background: linear-gradient(to bottom, #1e293b, #0f172a);
-      }
-      .toolbar-btn {
-        @apply px-2 py-1 rounded hover:bg-gray-200 transition-colors duration-150 text-gray-700;
-      }
-      .toolbar-btn.active {
-        @apply bg-primary/20 text-primary;
-      }
-      .rich-editor {
-        outline: none;
-        min-height: 100%;
-      }
-      .rich-editor h1 {
-        @apply text-2xl font-bold mb-4 mt-6;
-      }
-      .rich-editor h2 {
-        @apply text-xl font-bold mb-3 mt-5;
-      }
-      .rich-editor h3 {
-        @apply text-lg font-bold mb-2 mt-4;
-      }
-      .rich-editor p {
-        @apply mb-3;
-      }
-      .rich-editor ul {
-        @apply list-disc pl-6 mb-3;
-      }
-      .rich-editor ol {
-        @apply list-decimal pl-6 mb-3;
-      }
-      .rich-editor blockquote {
-        @apply border-l-4 border-gray-300 pl-4 italic text-gray-600 my-4;
-      }
-      .rich-editor a {
-        @apply text-blue-600 underline;
-      }
-      .rich-editor code {
-        @apply bg-gray-100 px-1 py-0.5 rounded text-sm font-mono;
-      }
-      .rich-editor pre {
-        @apply bg-gray-100 p-3 rounded text-sm font-mono overflow-x-auto mb-3;
-      }
-      .rich-editor table {
-        @apply border-collapse w-full mb-3;
-      }
-      .rich-editor th, .rich-editor td {
-        @apply border border-gray-300 px-3 py-2;
-      }
-      .rich-editor th {
-        @apply bg-gray-50 font-bold;
-      }
+      .editor-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+      .editor-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+      .editor-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+      .html-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+      .html-scrollbar::-webkit-scrollbar-track { background: #1e1e2e; }
+      .html-scrollbar::-webkit-scrollbar-thumb { background: #45475a; border-radius: 3px; }
+      .resizer { cursor: col-resize; background: linear-gradient(to right, transparent, #e2e8f0, transparent); transition: all 0.2s ease; }
+      .resizer:hover { background: linear-gradient(to right, transparent, #6366f1, transparent); }
+      .panel-header { background: linear-gradient(to bottom, #1e293b, #0f172a); }
+      .toolbar-btn { @apply px-2 py-1 rounded hover:bg-gray-200 transition-colors duration-150 text-gray-700; }
+      .toolbar-btn.active { @apply bg-primary/20 text-primary; }
+      .rich-editor { outline: none; min-height: 100%; }
+      .rich-editor h1 { @apply text-2xl font-bold mb-4 mt-6; }
+      .rich-editor h2 { @apply text-xl font-bold mb-3 mt-5; }
+      .rich-editor h3 { @apply text-lg font-bold mb-2 mt-4; }
+      .rich-editor p { @apply mb-3; }
+      .rich-editor ul { @apply list-disc pl-6 mb-3; }
+      .rich-editor ol { @list-decimal pl-6 mb-3; }
+      .rich-editor blockquote { @apply border-l-4 border-gray-300 pl-4 italic text-gray-600 my-4; }
+      .rich-editor a { @apply text-blue-600 underline; }
+      .rich-editor code { @apply bg-gray-100 px-1 py-0.5 rounded text-sm font-mono; }
+      .rich-editor pre { @apply bg-gray-100 p-3 rounded text-sm font-mono overflow-x-auto mb-3; }
+      .rich-editor table { @apply border-collapse w-full mb-3; }
+      .rich-editor th, .rich-editor td { @apply border border-gray-300 px-3 py-2; }
+      .rich-editor th { @apply bg-gray-50 font-bold; }
       
-      /* iPhone 15 真实比例样式 - 不受页面缩放影响 */
-      .iphone-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        padding: 20px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        overflow: auto;
-      }
+      .iphone-container { display: flex; align-items: center; justify-content: center; height: 100%; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); overflow: auto; }
+      .iphone-frame { position: relative; width: 280px; height: 607px; background: #1a1a1a; border-radius: 54px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); padding: 12px; flex-shrink: 0; }
+      .iphone-bezel { position: relative; width: 100%; height: 100%; background: #000000; border-radius: 42px; overflow: hidden; }
+      .iphone-dynamic-island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 105px; height: 31px; background: #000000; border-radius: 20px; z-index: 10; }
+      .iphone-screen { width: 100%; height: 100%; background: #ffffff; }
+      .iphone-side-button { position: absolute; background: #1a1a1a; border-radius: 2px; }
+      .iphone-power-btn { right: -3px; top: 145px; width: 3px; height: 95px; }
+      .iphone-volume-up { left: -3px; top: 120px; width: 3px; height: 45px; }
+      .iphone-volume-down { left: -3px; top: 175px; width: 3px; height: 45px; }
+      .iphone-silent-switch { left: -3px; top: 75px; width: 3px; height: 30px; }
       
-      /* iPhone 15 真实硬件参数：
-         - 屏幕分辨率：2556 x 1179 像素
-         - 屏幕比例：19.5:9 (准确值：2556/1179 ≈ 2.168:1)
-         - 物理尺寸：147.6 x 71.6 mm
-      */
-      .iphone-frame {
-        position: relative;
-        width: 280px; /* 固定宽度，不受页面缩放影响 */
-        height: 607px; /* 280 * 2.168 ≈ 607，保持准确的19.5:9比例 */
-        background: #1a1a1a;
-        border-radius: 54px; /* iPhone 15 真实圆角半径 */
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        padding: 12px;
-        flex-shrink: 0; /* 禁止缩放 */
-      }
-      
-      .iphone-bezel {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        background: #000000;
-        border-radius: 42px; /* 内边框圆角 */
+      .html-editor-container { width: 100%; height: 100%; overflow: hidden !important; background: #1e1e2e; }
+      .html-scroll-container { display: flex; width: 100%; height: 100%; overflow: auto; }
+      .line-numbers { flex-shrink: 0; width: 50px; padding: 1rem 0.5rem 1rem 0.25rem; text-align: right; color: #6c7086; font-family: 'Fira Code', Consolas, monospace; font-size: 0.875rem; line-height: 24px; user-select: none; border-right: 1px solid #313244; background: #181825; white-space: nowrap; min-height: 100%; }
+      .line-number { display: block; height: 24px !important; line-height: 24px !important; margin: 0 !important; padding: 0 !important; position: relative; }
+      .line-indicator { position: absolute; left: -4px; top: 12px; transform: translateY(-50%); width: 8px; height: 8px; border-radius: 50%; background: #22c55e; opacity: 0; transition: opacity 0.2s ease; }
+      .line-indicator.active { opacity: 1; box-shadow: 0 0 8px #22c55e; }
+      .code-wrapper { flex: 1; position: relative; min-height: 100%; background: #1e1e2e; overflow: visible; }
+      .code-highlight, .code-textarea { 
+        position: absolute; top: 0; left: 0; width: 100%; min-height: 100%; 
+        padding: 1rem; padding-left: 0.75rem; font-family: 'Fira Code', Consolas, monospace; 
+        font-size: 0.875rem; line-height: 24px !important; tab-size: 2; 
+        white-space: pre !important;
+        word-wrap: normal !important;
+        word-break: normal !important;
+        box-sizing: border-box; margin: 0; border: none; outline: none; 
         overflow: hidden;
       }
-      
-      /* iPhone 15 灵动岛真实尺寸：126点 x 37点 */
-      .iphone-dynamic-island {
-        position: absolute;
-        top: 12px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 105px; /* 按比例计算的宽度 */
-        height: 31px; /* 按比例计算的高度 */
-        background: #000000;
-        border-radius: 20px;
-        z-index: 10;
-      }
-      
-      .iphone-screen {
-        width: 100%;
-        height: 100%;
-        background: #ffffff;
-      }
-      
-      /* iPhone 15 侧边按钮真实位置 */
-      .iphone-side-button {
-        position: absolute;
-        background: #1a1a1a;
-        border-radius: 2px;
-      }
-      
-      .iphone-power-btn {
-        right: -3px;
-        top: 145px;
-        width: 3px;
-        height: 95px;
-      }
-      
-      .iphone-volume-up {
-        left: -3px;
-        top: 120px;
-        width: 3px;
-        height: 45px;
-      }
-      
-      .iphone-volume-down {
-        left: -3px;
-        top: 175px;
-        width: 3px;
-        height: 45px;
-      }
-      
-      .iphone-silent-switch {
-        left: -3px;
-        top: 75px;
-        width: 3px;
-        height: 30px;
-      }
-      
-      /* 彻底解决双重滚动条问题 - 最终版 */
-      .html-editor-container {
-        width: 100%;
-        height: 100%;
-        overflow: hidden !important; /* 关键：外层容器完全禁止滚动 */
-        background: #1e1e2e;
-      }
-      
-      /* 唯一的滚动容器 - 只有这一个会显示滚动条 */
-      .html-scroll-container {
-        display: flex;
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-      }
-      
-      .line-numbers {
-        flex-shrink: 0;
-        width: 50px;
-        padding: 1rem 0.5rem 1rem 0.25rem;
-        text-align: right;
-        color: #6c7086;
-        font-family: 'Fira Code', Consolas, Monaco, monospace;
-        font-size: 0.875rem;
-        line-height: 24px;
-        user-select: none;
-        border-right: 1px solid #313244;
-        background: #181825;
-        white-space: nowrap;
-        min-height: 100%;
-        overflow: visible !important; /* 关键：禁止行号区域滚动 */
-      }
-      
-      .line-number {
-        display: block;
-        height: 24px;
-        position: relative;
-      }
-      
-      .line-indicator {
-        position: absolute;
-        left: -4px; /* 绿点位置，靠近行号数字 */
-        top: 50%;
-        transform: translateY(-50%);
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #22c55e;
-        opacity: 0;
-        transition: opacity 0.2s ease;
-      }
-      
-      .line-indicator.active {
-        opacity: 1;
-        box-shadow: 0 0 8px #22c55e;
-      }
-      
-      .code-wrapper {
-        flex: 1;
-        position: relative;
-        min-height: 100%;
-        background: #1e1e2e;
-        overflow: visible !important; /* 关键：禁止代码包装器滚动 */
-      }
-      
-      /* 语法高亮层和输入层 - 彻底禁止滚动 */
-      .code-highlight, .code-textarea {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        min-height: 100%;
-        padding: 1rem;
-        padding-left: 0.75rem;
-        font-family: 'Fira Code', Consolas, Monaco, monospace;
-        font-size: 0.875rem;
-        line-height: 24px;
-        tab-size: 2;
-        white-space: pre;
-        box-sizing: border-box;
-        margin: 0;
-        border: none;
-        outline: none;
-        word-wrap: normal;
-        vertical-align: top !important;
-        /* 关键：彻底禁止这两个元素的滚动 */
-        overflow: hidden !important;
-      }
-      
-      .code-highlight {
-        pointer-events: none;
-        background: #1e1e2e;
-        z-index: 1;
-      }
-      
-      .code-textarea {
-        color: transparent !important;
-        background: transparent !important;
-        caret-color: #cdd6f4 !important;
-        resize: none !important; /* 关键：禁止textarea调整大小 */
-        z-index: 2;
-      }
-      
-      /* 统一选择样式 */
-      .code-textarea::selection {
-        background: rgba(205, 214, 244, 0.2) !important;
-        color: transparent !important;
-      }
-      
-      .code-textarea::-moz-selection {
-        background: rgba(205, 214, 244, 0.2) !important;
-        color: transparent !important;
-      }
-      
-      .code-highlight ::selection {
-        background: rgba(205, 214, 244, 0.2) !important;
-      }
-      
-      .code-highlight ::-moz-selection {
-        background: rgba(205, 214, 244, 0.2) !important;
-      }
-      
-      /* 覆盖highlight.js所有默认样式 */
-      .hljs {
-        background: transparent !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        line-height: 24px !important;
-        display: inline !important;
-        vertical-align: top !important;
+      .code-highlight { pointer-events: none; background: #1e1e2e; z-index: 1; }
+      .code-textarea { color: transparent !important; background: transparent !important; caret-color: #cdd6f4 !important; resize: none; z-index: 2; }
+      .code-textarea::selection { background: rgba(205, 214, 244, 0.2) !important; color: transparent !important; }
+      .hljs { 
+        background: transparent !important; padding: 0 !important; margin: 0 !important; 
+        line-height: 24px !important; display: inline; 
+        white-space: pre !important;
+        word-break: normal !important; 
       }
     }
   </style>
 </head>
 <body class="bg-dark-400 text-gray-200 font-sans h-screen flex flex-col overflow-hidden">
-  <!-- 顶部导航栏 -->
   <header class="bg-dark-300 border-b border-gray-700/50 py-3 px-6 flex items-center justify-between shadow-lg z-10">
+    <div class="flex items-center gap-3"><i class="fa fa-edit text-primary text-2xl"></i><h1 class="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">富文本编辑器</h1></div>
     <div class="flex items-center gap-3">
-      <i class="fa fa-edit text-primary text-2xl"></i>
-      <h1 class="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-        富文本编辑器
-      </h1>
-    </div>
-    
-    <div class="flex items-center gap-3">
-      <button id="copyHtmlBtn" class="px-4 py-2 bg-dark-200 hover:bg-dark-100 rounded-lg flex items-center gap-2 transition-all duration-200 border border-gray-700/50 hover:border-primary/50">
-        <i class="fa fa-copy"></i>
-        <span>复制HTML</span>
-      </button>
-      <button id="clearBtn" class="px-4 py-2 bg-dark-200 hover:bg-dark-100 rounded-lg flex items-center gap-2 transition-all duration-200 border border-gray-700/50 hover:border-primary/50">
-        <i class="fa fa-trash"></i>
-        <span>清空</span>
-      </button>
+      <button id="copyHtmlBtn" class="px-4 py-2 bg-dark-200 hover:bg-dark-100 rounded-lg flex items-center gap-2"><i class="fa fa-copy"></i><span>复制HTML</span></button>
+      <button id="clearBtn" class="px-4 py-2 bg-dark-200 hover:bg-dark-100 rounded-lg flex items-center gap-2"><i class="fa fa-trash"></i><span>清空</span></button>
     </div>
   </header>
 
-  <!-- 主内容区 -->
   <main class="flex-1 flex overflow-hidden">
-    <!-- 预览区 - iPhone 15真实比例 -->
     <div class="flex flex-col h-full" id="previewPanel">
-      <div class="panel-header px-4 py-2 border-b border-gray-700/50 flex items-center justify-between">
-        <h2 class="font-medium flex items-center gap-2">
-          <i class="fa fa-mobile text-green-400 text-lg"></i>
-          iPhone 15 真实预览
-        </h2>
-        <span class="text-xs text-gray-400" id="previewStatus">就绪</span>
-      </div>
-      <div class="flex-1 overflow-hidden">
-        <div class="iphone-container">
-          <div class="iphone-frame">
-            <!-- 侧边按钮 - 真实位置 -->
-            <div class="iphone-side-button iphone-power-btn"></div>
-            <div class="iphone-side-button iphone-volume-up"></div>
-            <div class="iphone-side-button iphone-volume-down"></div>
-            <div class="iphone-side-button iphone-silent-switch"></div>
-            
-            <div class="iphone-bezel">
-              <!-- 灵动岛 - 真实尺寸 -->
-              <div class="iphone-dynamic-island"></div>
-              
-              <!-- 预览屏幕 - 真实分辨率模拟 -->
-              <div class="iphone-screen">
-                <iframe id="previewFrame" class="w-full h-full border-0" title="iPhone 15预览"></iframe>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <div class="panel-header px-4 py-2 border-b border-gray-700/50 flex items-center justify-between"><h2 class="font-medium flex items-center gap-2"><i class="fa fa-mobile text-green-400 text-lg"></i>iPhone 15 真实预览</h2><span class="text-xs text-gray-400" id="previewStatus">就绪</span></div>
+      <div class="flex-1 overflow-hidden"><div class="iphone-container"><div class="iphone-frame"><div class="iphone-side-button iphone-power-btn"></div><div class="iphone-side-button iphone-volume-up"></div><div class="iphone-side-button iphone-volume-down"></div><div class="iphone-side-button iphone-silent-switch"></div><div class="iphone-bezel"><div class="iphone-dynamic-island"></div><div class="iphone-screen"><iframe id="previewFrame" class="w-full h-full border-0" title="iPhone 15预览"></iframe></div></div></div></div></div>
     </div>
-    
-    <!-- 调整栏1 -->
     <div class="resizer w-1" id="resizer1"></div>
-    
-    <!-- 富文本编辑区 -->
+
     <div class="flex flex-col h-full bg-white" id="editorPanel">
-      <div class="panel-header px-4 py-2 border-b border-gray-700/50 flex items-center justify-between">
-        <h2 class="font-medium flex items-center gap-2">
-          <i class="fa fa-pencil text-blue-400"></i>
-          富文本编辑
-        </h2>
-        <span class="text-xs text-gray-400" id="cursorPosition">行: 1, 列: 1</span>
-      </div>
-      
-      <!-- 富文本工具栏 -->
+      <div class="panel-header px-4 py-2 border-b border-gray-700/50 flex items-center justify-between"><h2 class="font-medium flex items-center gap-2"><i class="fa fa-pencil text-blue-400"></i>富文本编辑</h2><span class="text-xs text-gray-400" id="cursorPosition">行: 1, 列: 1</span></div>
       <div class="bg-editor-toolbar border-b border-gray-200 px-2 py-1 flex flex-wrap gap-1">
-        <button class="toolbar-btn" data-command="bold" title="加粗 (Ctrl+B)">
-          <i class="fa fa-bold"></i>
-        </button>
-        <button class="toolbar-btn" data-command="italic" title="斜体 (Ctrl+I)">
-          <i class="fa fa-italic"></i>
-        </button>
-        <button class="toolbar-btn" data-command="underline" title="下划线 (Ctrl+U)">
-          <i class="fa fa-underline"></i>
-        </button>
-        <button class="toolbar-btn" data-command="strikeThrough" title="删除线">
-          <i class="fa fa-strikethrough"></i>
-        </button>
-        
+        <button class="toolbar-btn" data-command="bold" title="加粗 (Ctrl+B)"><i class="fa fa-bold"></i></button>
+        <button class="toolbar-btn" data-command="italic" title="斜体 (Ctrl+I)"><i class="fa fa-italic"></i></button>
+        <button class="toolbar-btn" data-command="underline" title="下划线 (Ctrl+U)"><i class="fa fa-underline"></i></button>
+        <button class="toolbar-btn" data-command="strikeThrough" title="删除线"><i class="fa fa-strikethrough"></i></button>
         <div class="w-px h-6 bg-gray-300 mx-1 self-center"></div>
-        
-        <button class="toolbar-btn" data-command="justifyLeft" title="左对齐">
-          <i class="fa fa-align-left"></i>
-        </button>
-        <button class="toolbar-btn" data-command="justifyCenter" title="居中对齐">
-          <i class="fa fa-align-center"></i>
-        </button>
-        <button class="toolbar-btn" data-command="justifyRight" title="右对齐">
-          <i class="fa fa-align-right"></i>
-        </button>
-        
+        <button class="toolbar-btn" data-command="justifyLeft" title="左对齐"><i class="fa fa-align-left"></i></button>
+        <button class="toolbar-btn" data-command="justifyCenter" title="居中对齐"><i class="fa fa-align-center"></i></button>
+        <button class="toolbar-btn" data-command="justifyRight" title="右对齐"><i class="fa fa-align-right"></i></button>
         <div class="w-px h-6 bg-gray-300 mx-1 self-center"></div>
-        
-        <button class="toolbar-btn" data-command="insertUnorderedList" title="无序列表">
-          <i class="fa fa-list-ul"></i>
-        </button>
-        <button class="toolbar-btn" data-command="insertOrderedList" title="有序列表">
-          <i class="fa fa-list-ol"></i>
-        </button>
-        <button class="toolbar-btn" data-command="outdent" title="减少缩进">
-          <i class="fa fa-outdent"></i>
-        </button>
-        <button class="toolbar-btn" data-command="indent" title="增加缩进">
-          <i class="fa fa-indent"></i>
-        </button>
-        
+        <button class="toolbar-btn" data-command="insertUnorderedList" title="无序列表"><i class="fa fa-list-ul"></i></button>
+        <button class="toolbar-btn" data-command="insertOrderedList" title="有序列表"><i class="fa fa-list-ol"></i></button>
+        <button class="toolbar-btn" data-command="outdent" title="减少缩进"><i class="fa fa-outdent"></i></button>
+        <button class="toolbar-btn" data-command="indent" title="增加缩进"><i class="fa fa-indent"></i></button>
         <div class="w-px h-6 bg-gray-300 mx-1 self-center"></div>
-        
-        <select id="headingSelect" class="toolbar-btn h-7 text-sm" title="标题">
-          <option value="">正文</option>
-          <option value="h1">标题 1</option>
-          <option value="h2">标题 2</option>
-          <option value="h3">标题 3</option>
-          <option value="h4">标题 4</option>
-        </select>
-        
+        <select id="headingSelect" class="toolbar-btn h-7 text-sm"><option value="">正文</option><option value="h1">标题 1</option><option value="h2">标题 2</option><option value="h3">标题 3</option><option value="h4">标题 4</option></select>
         <div class="w-px h-6 bg-gray-300 mx-1 self-center"></div>
-        
-        <button class="toolbar-btn" id="linkBtn" title="插入链接">
-          <i class="fa fa-link"></i>
-        </button>
-        <button class="toolbar-btn" id="imageBtn" title="插入图片">
-          <i class="fa fa-image"></i>
-        </button>
-        <button class="toolbar-btn" data-command="blockquote" title="引用">
-          <i class="fa fa-quote-left"></i>
-        </button>
-        <button class="toolbar-btn" data-command="code" title="代码">
-          <i class="fa fa-code"></i>
-        </button>
-        
+        <button class="toolbar-btn" id="linkBtn" title="插入链接"><i class="fa fa-link"></i></button>
+        <button class="toolbar-btn" id="imageBtn" title="插入图片"><i class="fa fa-image"></i></button>
+        <button class="toolbar-btn" data-command="blockquote" title="引用"><i class="fa fa-quote-left"></i></button>
+        <button class="toolbar-btn" data-command="code" title="代码"><i class="fa fa-code"></i></button>
         <div class="w-px h-6 bg-gray-300 mx-1 self-center"></div>
-        
-        <button class="toolbar-btn" data-command="undo" title="撤销 (Ctrl+Z)">
-          <i class="fa fa-undo"></i>
-        </button>
-        <button class="toolbar-btn" data-command="redo" title="重做 (Ctrl+Y)">
-          <i class="fa fa-repeat"></i>
-        </button>
+        <button class="toolbar-btn" data-command="undo" title="撤销 (Ctrl+Z)"><i class="fa fa-undo"></i></button>
+        <button class="toolbar-btn" data-command="redo" title="重做 (Ctrl+Y)"><i class="fa fa-repeat"></i></button>
       </div>
-      
-      <div class="flex-1 overflow-auto relative">
-        <div 
-          id="richEditor" 
-          class="rich-editor w-full h-full p-6 text-editor-text leading-relaxed editor-scrollbar"
-          contenteditable="true"
-          spellcheck="false"
-        ></div>
-      </div>
+      <div class="flex-1 overflow-auto relative"><div id="richEditor" class="rich-editor w-full h-full p-6 text-editor-text leading-relaxed editor-scrollbar" contenteditable="true" spellcheck="false"></div></div>
     </div>
-    
-    <!-- 调整栏2 -->
     <div class="resizer w-1" id="resizer2"></div>
-    
-    <!-- HTML源码区 - 彻底解决双重滚动条 -->
+
     <div class="flex flex-col h-full" id="htmlPanel">
-      <div class="panel-header px-4 py-2 border-b border-gray-700/50 flex items-center justify-between">
-        <h2 class="font-medium flex items-center gap-2">
-          <i class="fa fa-html5 text-orange-400"></i>
-          HTML源码
-        </h2>
-        <span class="text-xs text-gray-400" id="htmlSize">0 字符</span>
-      </div>
+      <div class="panel-header px-4 py-2 border-b border-gray-700/50 flex items-center justify-between"><h2 class="font-medium flex items-center gap-2"><i class="fa fa-html5 text-orange-400"></i>HTML源码</h2><span class="text-xs text-gray-400" id="htmlSize">0 字符</span></div>
       <div class="flex-1 overflow-hidden relative">
         <div class="html-editor-container">
-          <!-- 唯一的滚动容器 - 只有这一个会显示滚动条 -->
           <div class="html-scroll-container html-scrollbar" id="htmlScrollContainer">
-            <!-- 行号列 -->
             <div class="line-numbers" id="lineNumbers"></div>
-            
-            <!-- 代码包装器 -->
-            <div class="code-wrapper">
-              <!-- 语法高亮层（只显示彩色文字） -->
-              <div class="code-highlight" id="codeHighlight"></div>
-              <!-- 实际输入层（只接收输入和显示光标） -->
-              <textarea 
-                id="htmlSource" 
-                class="code-textarea"
-                placeholder="HTML源码将在此显示..."
-              ></textarea>
-            </div>
+            <div class="code-wrapper"><div class="code-highlight" id="codeHighlight"></div><textarea id="htmlSource" class="code-textarea" placeholder="HTML源码将在此显示..."></textarea></div>
           </div>
         </div>
       </div>
     </div>
   </main>
 
-  <!-- 底部状态栏 -->
   <footer class="bg-dark-300 border-t border-gray-700/50 py-2 px-6 flex items-center justify-between text-xs text-gray-400">
-    <div class="flex items-center gap-4">
-      <span>© 2026 富文本编辑器</span>
-      <span class="text-primary">●</span>
-      <span>实时同步已启用</span>
-    </div>
-    <div class="flex items-center gap-4">
-      <span id="totalWords">总字数: 0</span>
-      <span id="totalChars">总字符: 0</span>
-    </div>
+    <div class="flex items-center gap-4"><span>© 2026 富文本编辑器</span><span class="text-primary">●</span><span>实时同步已启用</span></div>
+    <div class="flex items-center gap-4"><span id="totalWords">总字数: 0</span><span id="totalChars">总字符: 0</span></div>
   </footer>
 
   <script>
-    // 获取DOM元素
     const richEditor = document.getElementById('richEditor');
     const htmlSource = document.getElementById('htmlSource');
     const codeHighlight = document.getElementById('codeHighlight');
@@ -593,36 +187,27 @@
     const imageBtn = document.getElementById('imageBtn');
     const toolbarBtns = document.querySelectorAll('.toolbar-btn[data-command]');
 
-    // 初始化示例内容 - 移除前导换行符，确保行号准确
+    const LINE_HEIGHT = 24;
+    let isLocating = false;
+    let lastTargetLine = null; // 记录最后一次定位的行号
+
+    // 初始化内容
     const initialContent = `<h1>欢迎使用富文本编辑器</h1>
-<p>这是一个功能强大的三栏富文本编辑器，您可以在中间进行可视化编辑，左侧实时预览iPhone效果，右侧查看对应的HTML源码。</p>
-<h2>主要功能</h2>
+<p>这是一个功能强大的三栏富文本编辑器，您可以在中间进行可视化编辑，左侧实时预览iPhone效果，右侧查看对应的HTML源码。现在行间距完全正常，且绿点定位绝对精准！</p>
+<h2>核心改进</h2>
 <ul>
+<li><strong>精准行定位</strong>：选中任意文字，右侧源码区绿色圆点会精确落在对应标签所在行。</li>
 <li><strong>所见即所得</strong>：像使用Word一样编辑内容</li>
 <li><strong>iPhone 15真实预览</strong>：完全按照真实比例和分辨率显示</li>
 <li><strong>HTML语法高亮</strong>：代码带有漂亮的语法高亮显示</li>
-<li><strong>智能定位</strong>：选中文字后，源码区会显示绿色定位点</li>
+<li><strong>横向滚动条</strong>：超长代码行不再自动折行，使用横向滚动查看</li>
 <li><strong>完美对齐</strong>：行号与代码行精确对齐，无错位</li>
-<li><strong>无限行数支持</strong>：支持任意行数的代码，不再有33行限制</li>
-<li><strong>单一滚动条</strong>：只有一个滚动条，滚动体验流畅</li>
 <li><strong>可调整面板</strong>：自由拖拽调整三个区域的大小</li>
 </ul>
-<h2>使用示例</h2>
-<p>这是<strong>加粗</strong>文本，这是<em>斜体</em>文本，这是<u>下划线</u>文本。</p>
-<blockquote>
-<p>这是一段引用文字，可以用来突出显示重要内容。</p>
-</blockquote>
-<p>您可以插入<a href="https://www.example.com" target="_blank">链接</a>，也可以插入代码：<code>console.log('Hello World')</code></p>
-<h3>有序列表示例</h3>
-<ol>
-<li>第一步：准备材料</li>
-<li>第二步：开始制作</li>
-<li>第三步：完成作品</li>
-</ol>
-<p>编辑完成后，您可以点击"复制HTML"按钮将生成的代码复制到剪贴板使用。</p>
-`;
-
-    // 设置初始内容
+<h2>测试定位功能</h2>
+<p>请将光标点击到上方“核心改进”这一行，右侧源码区应该高亮 <code>&lt;h2&gt;核心改进&lt;/h2&gt;</code> 所在的行。</p>
+<p><a href="#" target="_blank">链接示例：点击这里的文字试试定位效果</a></p>
+<blockquote><p>引用块：定位同样精准，绿点会落在 blockquote 标签所在行。</p></blockquote>`;
     richEditor.innerHTML = initialContent;
     updatePreview();
     updateHtmlSource();
@@ -630,7 +215,49 @@
     updateLineNumbers();
     updateCodeHighlight();
 
-    // 执行富文本命令
+    // 通用更新
+    function updatePreview() {
+      const content = richEditor.innerHTML;
+      const previewDoc = previewFrame.contentDocument || previewFrame.contentWindow.document;
+      previewDoc.open();
+      previewDoc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=393, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;padding:16px;padding-top:59px;padding-bottom:34px;line-height:1.5;color:#1c1c1e;background:#fff;font-size:17px;}h1{font-size:28px;font-weight:700;margin:20px 0 16px;}h2{font-size:22px;font-weight:600;margin:18px 0 12px;}h3{font-size:19px;font-weight:600;margin:16px 0 10px;}p{margin:12px 0;}ul,ol{padding-left:24px;margin:12px 0;}blockquote{border-left:4px solid #d1d1d6;padding-left:16px;margin:20px 0;color:#8e8e93;}a{color:#007aff;text-decoration:none;}code{background:#f2f2f7;padding:2px 6px;border-radius:4px;}pre{background:#f2f2f7;padding:16px;border-radius:8px;overflow:auto;}</style></head><body>${content}</body></html>`);
+      previewDoc.close();
+      previewStatus.textContent = '已更新';
+      setTimeout(() => previewStatus.textContent = '就绪', 800);
+    }
+
+    function updateHtmlSource() {
+      let html = richEditor.innerHTML.trim();
+      html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      htmlSource.value = html;
+      updateCodeHighlight();
+      updateLineNumbers();
+      htmlSize.textContent = `${html.length} 字符`;
+    }
+
+    function updateCodeHighlight() {
+      const html = htmlSource.value;
+      const highlighted = hljs.highlight(html, { language: 'xml' }).value;
+      codeHighlight.innerHTML = highlighted;
+      codeHighlight.style.width = `${Math.max(htmlSource.scrollWidth, htmlScrollContainer.clientWidth)}px`;
+      codeHighlight.parentElement.style.height = `${htmlSource.scrollHeight}px`;
+    }
+
+    function updateLineNumbers() {
+      const lines = htmlSource.value.split('\n');
+      let html = '';
+      for (let i = 1; i <= lines.length; i++) {
+        html += `<div class="line-number" data-line="${i}"><span class="line-indicator"></span>${i}</div>`;
+      }
+      lineNumbers.innerHTML = html;
+    }
+
+    function updateStats() {
+      const text = richEditor.innerText || richEditor.textContent;
+      totalChars.textContent = `总字符: ${text.length}`;
+      totalWords.textContent = `总字数: ${text.replace(/\s/g, '').length}`;
+    }
+
     function execCommand(command, value = null) {
       document.execCommand(command, false, value);
       richEditor.focus();
@@ -639,306 +266,131 @@
       updateToolbarState();
     }
 
-    // 更新预览 - iPhone 15真实分辨率模拟
-    function updatePreview() {
-      const content = richEditor.innerHTML;
-      const previewDoc = previewFrame.contentDocument || previewFrame.contentWindow.document;
-      
-      // 创建完全模拟iPhone 15的HTML文档
-      const fullHtml = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <!-- iPhone 15 真实视口设置 -->
-  <meta name="viewport" content="width=393, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>iPhone 15预览</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    html, body {
-      width: 100%;
-      height: 100%;
-      overflow-x: hidden;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      padding: 16px;
-      padding-top: 59px; /* iPhone 15 状态栏高度 + 灵动岛高度 */
-      padding-bottom: 34px; /* iPhone 15 底部安全区域 */
-      line-height: 1.5;
-      color: #1c1c1e;
-      background-color: #ffffff;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      font-size: 17px; /* iOS 默认字体大小 */
-    }
-    h1 { font-size: 28px; font-weight: 700; margin: 20px 0 16px 0; line-height: 1.2; }
-    h2 { font-size: 22px; font-weight: 600; margin: 18px 0 12px 0; line-height: 1.3; }
-    h3 { font-size: 19px; font-weight: 600; margin: 16px 0 10px 0; line-height: 1.3; }
-    p { margin: 12px 0; font-size: 17px; line-height: 1.5; }
-    ul, ol { padding-left: 24px; margin: 12px 0; }
-    li { margin: 6px 0; font-size: 17px; line-height: 1.5; }
-    blockquote { border-left: 4px solid #d1d1d6; padding-left: 16px; margin: 20px 0; color: #8e8e93; font-style: italic; }
-    a { color: #007aff; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    code { background-color: #f2f2f7; padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', Monaco, Menlo, monospace; font-size: 15px; }
-    pre { background-color: #f2f2f7; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 16px 0; }
-    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-    th, td { border: 1px solid #e5e5ea; padding: 10px; text-align: left; font-size: 16px; }
-    th { background-color: #f2f2f7; font-weight: 600; }
-    img { max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; }
-  </style>
-</head>
-<body>
-${content}
-</body>
-</html>`;
-      
-      previewDoc.open();
-      previewDoc.write(fullHtml);
-      previewDoc.close();
-      
-      previewStatus.textContent = '已更新';
-      setTimeout(() => {
-        previewStatus.textContent = '就绪';
-      }, 1000);
-    }
-
-    // 更新HTML源码 - 修复换行符问题
-    function updateHtmlSource() {
-      // 获取innerHTML并移除前导和尾随的空白字符
-      let html = richEditor.innerHTML.trim();
-      // 统一换行符为\n
-      html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      htmlSource.value = html;
-      updateCodeHighlight();
-      updateLineNumbers();
-      htmlSize.textContent = `${html.length} 字符`;
-    }
-
-    // 更新代码高亮 - 最终修复版
-    function updateCodeHighlight() {
-      const html = htmlSource.value;
-      // 使用highlight.js进行语法高亮
-      const highlighted = hljs.highlight(html, { language: 'xml' }).value;
-      
-      // 强制移除所有可能的前导和尾随空白字符
-      const cleanHighlighted = highlighted.replace(/^\s+/, '').replace(/\s+$/, '');
-      
-      // 直接插入到div中
-      codeHighlight.innerHTML = cleanHighlighted;
-      
-      // 强制同步代码包装器的高度
-      codeHighlight.parentElement.style.height = `${htmlSource.scrollHeight}px`;
-    }
-
-    // 更新行号
-    function updateLineNumbers() {
-      const lines = htmlSource.value.split('\n');
-      let lineNumbersHtml = '';
-      
-      for (let i = 1; i <= lines.length; i++) {
-        lineNumbersHtml += `<div class="line-number" data-line="${i}">
-          <span class="line-indicator"></span>
-          ${i}
-        </div>`;
-      }
-      
-      lineNumbers.innerHTML = lineNumbersHtml;
-    }
-
-    // 更新统计信息
-    function updateStats() {
-      const text = richEditor.innerText || richEditor.textContent;
-      const chars = text.length;
-      const words = text.replace(/\s/g, '').length;
-      
-      totalWords.textContent = `总字数: ${words}`;
-      totalChars.textContent = `总字符: ${chars}`;
-    }
-
-    // 更新工具栏按钮状态
     function updateToolbarState() {
       toolbarBtns.forEach(btn => {
-        const command = btn.getAttribute('data-command');
-        if (document.queryCommandState(command)) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
+        const cmd = btn.getAttribute('data-command');
+        if (document.queryCommandState(cmd)) btn.classList.add('active');
+        else btn.classList.remove('active');
       });
-      
-      // 更新标题选择框
       const formatBlock = document.queryCommandValue('formatBlock');
       headingSelect.value = formatBlock.toLowerCase();
     }
 
-    // 工具栏按钮点击事件
-    toolbarBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const command = btn.getAttribute('data-command');
-        execCommand(command);
-      });
-    });
-
-    // 标题选择事件
-    headingSelect.addEventListener('change', () => {
-      const value = headingSelect.value;
-      if (value) {
-        execCommand('formatBlock', `<${value}>`);
-      } else {
-        execCommand('formatBlock', '<p>');
+    // ✅ 核心1：仅显示绿点，不执行任何滚动
+    function showLineIndicator(lineNumber) {
+      document.querySelectorAll('.line-indicator.active').forEach(ind => ind.classList.remove('active'));
+      if (!lineNumber) return;
+      lastTargetLine = lineNumber;
+      const targetLineDiv = lineNumbers.querySelector(`.line-number[data-line="${lineNumber}"]`);
+      if (targetLineDiv) {
+        const indicator = targetLineDiv.querySelector('.line-indicator');
+        if (indicator) indicator.classList.add('active');
       }
-    });
+    }
 
-    // 插入链接
-    linkBtn.addEventListener('click', () => {
-      const url = prompt('请输入链接地址:', 'https://');
-      if (url) {
-        execCommand('createLink', url);
-        // 为链接添加target="_blank"
-        const selection = window.getSelection();
-        if (selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          const link = range.commonAncestorContainer.parentNode;
-          if (link.tagName === 'A') {
-            link.target = '_blank';
-            updatePreview();
-            updateHtmlSource();
-          }
+    // ✅ 核心2：仅主动调用时执行滚动（点击富文本时才触发）
+    function scrollToLine(lineNumber) {
+      if (!lineNumber) return;
+      const scrollTop = (lineNumber - 1) * LINE_HEIGHT;
+      const containerRect = htmlScrollContainer.getBoundingClientRect();
+      const targetY = scrollTop - containerRect.height / 2 + LINE_HEIGHT / 2;
+      htmlScrollContainer.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+    }
+
+    // 精准定位：只计算行号，显示绿点
+    function locateCurrentLine(needScroll = false) {
+      if (isLocating) return;
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!richEditor.contains(range.commonAncestorContainer)) {
+        showLineIndicator(null);
+        return;
+      }
+
+      isLocating = true;
+      try {
+        const savedRange = range.cloneRange();
+        let container = range.startContainer;
+        if (container.nodeType === Node.TEXT_NODE) container = container.parentElement;
+        let targetElement = container;
+        while (targetElement && targetElement !== richEditor && !targetElement.parentElement) targetElement = targetElement.parentElement;
+        if (!targetElement || targetElement === richEditor) {
+          const firstChild = richEditor.firstElementChild;
+          if (firstChild) targetElement = firstChild;
+          else return;
         }
+
+        const marker = `<!-- CARET_MARKER_${Date.now()}_${Math.random().toString(36).substr(2, 8)} -->`;
+        const markerComment = document.createComment(marker);
+        targetElement.parentNode.insertBefore(markerComment, targetElement);
+        const htmlWithMarker = richEditor.innerHTML;
+        const markerPos = htmlWithMarker.indexOf(marker);
+        
+        if (markerPos !== -1) {
+          const beforeMarker = htmlWithMarker.substring(0, markerPos);
+          const lineCount = (beforeMarker.match(/\n/g) || []).length;
+          const targetLine = lineCount + 1;
+          showLineIndicator(targetLine);
+          // 只有需要滚动时才执行
+          if (needScroll) scrollToLine(targetLine);
+        } else {
+          showLineIndicator(null);
+        }
+
+        markerComment.parentNode?.removeChild(markerComment);
+        const newSelection = window.getSelection();
+        newSelection.removeAllRanges();
+        newSelection.addRange(savedRange);
+      } catch (err) {
+        showLineIndicator(null);
+      } finally {
+        isLocating = false;
       }
+    }
+
+    // ✅ 核心3：选区变化 → 只更新绿点，不滚动
+    let selectionTimer = null;
+    document.addEventListener('selectionchange', () => {
+      if (selectionTimer) clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+        locateCurrentLine(false);
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && richEditor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+          const range = sel.getRangeAt(0);
+          const line = range.startContainer.textContent?.substring(0, range.startOffset).split('\n').length || 1;
+          cursorPosition.textContent = `行: ${line}, 列: ${range.startOffset % 80 || 1}`;
+        } else {
+          cursorPosition.textContent = `行: 1, 列: 1`;
+        }
+      }, 20);
     });
 
-    // 插入图片
-    imageBtn.addEventListener('click', () => {
-      const url = prompt('请输入图片地址:', 'https://');
-      if (url) {
-        execCommand('insertImage', url);
-      }
+    // ✅ 核心4：【主动点击富文本】→ 执行一次滚动 + 绿点
+    richEditor.addEventListener('click', () => {
+      locateCurrentLine(true);
     });
 
-    // 富文本编辑事件
+    // 富文本编辑：只更新绿点，不滚动
     richEditor.addEventListener('input', () => {
       updatePreview();
       updateHtmlSource();
       updateStats();
+      locateCurrentLine(false);
     });
+    richEditor.addEventListener('keyup', () => { updateToolbarState(); locateCurrentLine(false); });
 
-    richEditor.addEventListener('keyup', updateToolbarState);
-    richEditor.addEventListener('mouseup', updateToolbarState);
-
-    // 智能定位算法 - 100%准确
-    document.addEventListener('selectionchange', () => {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      
-      const range = selection.getRangeAt(0);
-      // 检查选区是否在富文本编辑器内
-      if (!richEditor.contains(range.commonAncestorContainer)) return;
-      
-      // 步骤1：找到光标所在的DOM元素
-      let targetElement = range.commonAncestorContainer;
-      if (targetElement.nodeType === Node.TEXT_NODE) {
-        targetElement = targetElement.parentElement;
-      }
-      
-      // 步骤2：获取该元素的完整HTML
-      const elementHtml = targetElement.outerHTML;
-      // 提取纯文本内容用于匹配
-      const elementText = targetElement.textContent.trim();
-      
-      // 如果没有文本，不进行定位
-      if (elementText === '' || elementText.length < 2) return;
-      
-      // 步骤3：在HTML源码中查找包含这段HTML的行
-      const htmlLines = htmlSource.value.split('\n');
-      let bestMatchLine = -1;
-      let bestMatchScore = 0;
-      
-      // 遍历所有HTML行，找到最匹配的一行
-      for (let i = 0; i < htmlLines.length; i++) {
-        const htmlLine = htmlLines[i].trim();
-        
-        // 跳过空行和纯结束标签
-        if (htmlLine === '' || htmlLine.startsWith('</')) continue;
-        
-        // 优先匹配完整的HTML标签
-        if (htmlLine.includes(elementHtml)) {
-          bestMatchLine = i + 1;
-          break;
-        }
-        
-        // 其次匹配包含相同文本的行
-        if (htmlLine.includes(elementText)) {
-          const score = elementText.length / htmlLine.length;
-          if (score > bestMatchScore) {
-            bestMatchScore = score;
-            bestMatchLine = i + 1;
-          }
-        }
-      }
-      
-      // 步骤4：如果没有找到，尝试模糊匹配
-      if (bestMatchLine === -1) {
-        const normalizedText = elementText.replace(/\s+|[.,;:!?'"(){}[\]]/g, '');
-        
-        for (let i = 0; i < htmlLines.length; i++) {
-          const htmlLine = htmlLines[i];
-          const normalizedHtml = htmlLine.replace(/<[^>]+>/g, '').replace(/\s+|[.,;:!?'"(){}[\]]/g, '');
-          
-          if (normalizedHtml.includes(normalizedText) && normalizedText.length > 0) {
-            const score = normalizedText.length / normalizedHtml.length;
-            if (score > bestMatchScore && !htmlLine.trim().startsWith('</')) {
-              bestMatchScore = score;
-              bestMatchLine = i + 1;
-            }
-          }
-        }
-      }
-      
-      // 步骤5：显示绿色定位点
-      if (bestMatchLine !== -1) {
-        showLineIndicator(bestMatchLine);
-      }
-    });
-
-    // 显示行定位点
-    function showLineIndicator(lineNumber) {
-      // 清除所有激活的定位点
-      document.querySelectorAll('.line-indicator.active').forEach(indicator => {
-        indicator.classList.remove('active');
-      });
-      
-      // 激活对应行的定位点
-      const lineElement = lineNumbers.querySelector(`.line-number[data-line="${lineNumber}"]`);
-      if (lineElement) {
-        const indicator = lineElement.querySelector('.line-indicator');
-        indicator.classList.add('active');
-        
-        // 滚动到对应行
-        const lineHeight = 24; // 与CSS中设置的行高一致
-        const scrollTop = (lineNumber - 1) * lineHeight;
-        htmlScrollContainer.scrollTo({
-          top: scrollTop - htmlScrollContainer.clientHeight / 2 + lineHeight / 2,
-          behavior: 'smooth'
-        });
-      }
-    }
-
-    // HTML源码区反向同步
+    // 源码区双向同步
     htmlSource.addEventListener('input', () => {
       richEditor.innerHTML = htmlSource.value;
       updatePreview();
       updateStats();
       updateCodeHighlight();
       updateLineNumbers();
+      locateCurrentLine(false);
     });
 
-    // 同步滚动事件 - 只同步高亮层的位置
+    // 滚动同步
     htmlScrollContainer.addEventListener('scroll', () => {
       requestAnimationFrame(() => {
         codeHighlight.scrollTop = htmlScrollContainer.scrollTop;
@@ -946,94 +398,69 @@ ${content}
       });
     });
 
-    // 复制HTML按钮
-    copyHtmlBtn.addEventListener('click', () => {
-      htmlSource.select();
-      document.execCommand('copy');
-      
-      // 显示成功提示
-      previewStatus.textContent = 'HTML已复制到剪贴板';
-      setTimeout(() => {
-        previewStatus.textContent = '就绪';
-      }, 1500);
+    // 工具栏事件
+    toolbarBtns.forEach(btn => btn.addEventListener('click', () => execCommand(btn.getAttribute('data-command'))));
+    headingSelect.addEventListener('change', () => {
+      const val = headingSelect.value;
+      execCommand('formatBlock', val ? `<${val}>` : '<p>');
+    });
+    linkBtn.addEventListener('click', () => {
+      const url = prompt('请输入链接地址:', 'https://');
+      if (url) execCommand('createLink', url);
+    });
+    imageBtn.addEventListener('click', () => {
+      const url = prompt('请输入图片地址:', 'https://');
+      if (url) execCommand('insertImage', url);
     });
 
-    // 清空按钮
+    copyHtmlBtn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(richEditor.innerHTML); alert('HTML代码已复制到剪贴板'); }
+      catch { alert('复制失败，请手动复制'); }
+    });
     clearBtn.addEventListener('click', () => {
-      if (confirm('确定要清空所有内容吗？')) {
-        richEditor.innerHTML = '';
+      if (confirm('清空所有内容？')) {
+        richEditor.innerHTML = '<p>开始编辑...</p>';
         updatePreview();
         updateHtmlSource();
         updateStats();
+        locateCurrentLine(true);
       }
     });
 
-    // 面板调整功能
+    // 面板缩放
     function initResizer(resizer, leftPanel, rightPanel) {
       let isResizing = false;
-      
-      resizer.addEventListener('mousedown', (e) => {
-        isResizing = true;
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-      });
-      
+      resizer.addEventListener('mousedown', (e) => { isResizing = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault(); });
       document.addEventListener('mousemove', (e) => {
         if (!isResizing) return;
-        
         const containerRect = document.querySelector('main').getBoundingClientRect();
         const totalWidth = containerRect.width;
-        const mouseX = e.clientX - containerRect.left;
-        
-        // 计算百分比
-        const leftPercent = (mouseX / totalWidth) * 100;
-        const rightPercent = 100 - leftPercent;
-        
-        // 设置最小宽度 - 确保iPhone预览区不会太小
-        if (leftPercent < 25 || rightPercent < 45) return;
-        
+        let mouseX = e.clientX - containerRect.left;
+        let leftPercent = (mouseX / totalWidth) * 100;
+        let rightPercent = 100 - leftPercent;
+        if (leftPercent < 22 || rightPercent < 35) return;
         leftPanel.style.flex = `0 0 ${leftPercent}%`;
         rightPanel.style.flex = `0 0 ${rightPercent}%`;
       });
-      
-      document.addEventListener('mouseup', () => {
-        isResizing = false;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      });
+      document.addEventListener('mouseup', () => { isResizing = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; });
     }
-
-    // 初始化调整器
     initResizer(resizer1, previewPanel, editorPanel);
     initResizer(resizer2, editorPanel, htmlPanel);
-
-    // 调整面板宽度，确保iPhone预览区有足够空间
     previewPanel.style.flex = '0 0 28%';
-    editorPanel.style.flex = '0 0 22%';
-    htmlPanel.style.flex = '0 0 50%';
+    editorPanel.style.flex = '0 0 24%';
+    htmlPanel.style.flex = '0 0 48%';
 
     // 键盘快捷键
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey) {
-        switch (e.key.toLowerCase()) {
-          case 'b':
-            e.preventDefault();
-            execCommand('bold');
-            break;
-          case 'i':
-            e.preventDefault();
-            execCommand('italic');
-            break;
-          case 'u':
-            e.preventDefault();
-            execCommand('underline');
-            break;
-        }
+        if (e.key === 'b') { e.preventDefault(); execCommand('bold'); }
+        else if (e.key === 'i') { e.preventDefault(); execCommand('italic'); }
+        else if (e.key === 'u') { e.preventDefault(); execCommand('underline'); }
       }
     });
-
-    // 初始聚焦到编辑器
+    
     richEditor.focus();
+    setTimeout(() => locateCurrentLine(true), 100);
   </script>
 </body>
 </html>
