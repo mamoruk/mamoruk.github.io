@@ -22,7 +22,8 @@
   .view .vhead{padding:6px 10px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;}
   .view .vbody{flex:1;min-height:0;position:relative;}
   svg{width:100%;height:100%;display:block;background:var(--bg);}
-  #view3d{position:relative;flex:1;min-height:0;}
+  #view3d{position:absolute;inset:0;}
+  #view3d canvas{display:block;}
   #labelLayer{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;}
   .clabel{position:absolute;transform:translate(-50%,-130%);font-size:11px;padding:2px 6px;border-radius:6px;white-space:nowrap;pointer-events:none;font-family:inherit;line-height:1.3;}
   .clabel.sensor{background:rgba(88,166,255,.16);border:1px solid rgba(88,166,255,.6);color:#cfe6ff;}
@@ -58,7 +59,7 @@
 <body>
 <header>
   <h1>人在传感器覆盖规划器</h1>
-  <span class="hint">顶视图：点空白加传感器 · 拖拽移动 · 右键删除 · 点“添加人物”后拖拽定位（3D 中可选中人物用 <span class="kbd">W A S D</span>/方向键移动，<span class="kbd">Shift</span> 加速）</span>
+  <span class="hint">右键空白处弹出菜单：添加传感器 / 添加人物 · 左键拖拽移动传感器或人物 · 点列表或视图选中（3D 中可选中人物用 <span class="kbd">W A S D</span>/方向键移动，<span class="kbd">Shift</span> 加速）</span>
   <span class="legend">
     <span><i class="dot" style="background:var(--red)"></i>运动检测(直径14m@2.8m)</span>
     <span><i class="dot" style="background:var(--orange)"></i>存在检测(直径10m@2.8m)</span>
@@ -242,19 +243,30 @@ function renderTop(){
     s+=`<text x="${se.x}" y="${se.y-0.38}" font-size="0.22" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
     s+=`<text x="${se.x}" y="${se.y-0.6}" font-size="0.15" fill="#6b7682" text-anchor="middle">(${se.x.toFixed(1)}, ${se.y.toFixed(1)})</text>`;
   });
-  // 人物
+  // 人物：顶视图以单个点表示位置
   persons.forEach(p=>{
     const sc=scanHeights(p.x,p.y);
     const col = (sc.mH>=p.height)? '#2ea043' : (sc.mH>0? '#ffae3b' : '#ff6b6b');
     const sel = p.id===state.selectedPerson;
     s+=`<g data-person-id="${p.id}" style="cursor:pointer">
-      <line x1="${p.x}" y1="${p.y}" x2="${p.x}" y2="${p.y-p.height}" stroke="${col}" stroke-width="0.05"/>
-      <circle cx="${p.x}" cy="${p.y-p.height-0.06}" r="0.14" fill="${col}" stroke="#fff" stroke-width="0.02"/>
-      <circle cx="${p.x}" cy="${p.y}" r="${sel?0.16:0.12}" fill="${col}" stroke="#fff" stroke-width="0.02"/>
-      <text x="${p.x}" y="${p.y+0.34}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>
-      <text x="${p.x}" y="${p.y+0.54}" font-size="0.14" fill="#6b7682" text-anchor="middle">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</text>
+      <circle cx="${p.x}" cy="${p.y}" r="${sel?0.18:0.13}" fill="${col}" stroke="#fff" stroke-width="0.02"/>
+      <text x="${p.x}" y="${p.y+0.38}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>
     </g>`;
   });
+  // 选中实体的离墙标注（青色虚线 + 距离文字）
+  const selEnt = state.selected!=null ? getSensor(state.selected)
+              : (state.selectedPerson!=null ? getPerson(state.selectedPerson) : null);
+  if(selEnt){
+    const x=selEnt.x, y=selEnt.y;
+    const dl=(x0,y0,x1,y1,label)=>{
+      s+=`<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#39d0d8" stroke-width="0.02" stroke-dasharray="0.1 0.07"/>`;
+      s+=`<text x="${(x0+x1)/2}" y="${(y0+y1)/2 - 0.13}" font-size="0.17" fill="#39d0d8" text-anchor="middle">${label}</text>`;
+    };
+    dl(0, y, x, y, `左 ${x.toFixed(1)}`);
+    dl(x, y, L, y, `右 ${(L-x).toFixed(1)}`);
+    dl(x, 0, x, y, `前 ${y.toFixed(1)}`);
+    dl(x, y, x, W, `后 ${(W-y).toFixed(1)}`);
+  }
   topSvg.innerHTML = s;
   applyTopViewBox();
 }
@@ -269,14 +281,18 @@ function toMeter(evt){
 }
 let drag = null;
 topSvg.addEventListener('mousedown', e=>{
+  if(e.button!==0) return; // 仅左键拖拽；右键交给上下文菜单
   const pt = toMeter(e);
-  const t = e.target;
-  if(t.dataset && t.dataset.personId){
-    drag = { pid:+t.dataset.personId, moved:false, sx:e.clientX, sy:e.clientY };
-  } else if(t.dataset && t.dataset.sensorId){
-    drag = { id:+t.dataset.sensorId, moved:false, sx:e.clientX, sy:e.clientY };
+  const pe = e.target.closest('[data-person-id]');
+  const se = e.target.closest('[data-sensor-id]');
+  if(pe){
+    const p = getPerson(+pe.dataset.personId);
+    if(p) drag = { pid:p.id, moved:false, sx:e.clientX, sy:e.clientY, gdx:p.x-pt.x, gdy:p.y-pt.y };
+  } else if(se){
+    const s = getSensor(+se.dataset.sensorId);
+    if(s) drag = { id:s.id, moved:false, sx:e.clientX, sy:e.clientY, gdx:s.x-pt.x, gdy:s.y-pt.y };
   } else {
-    drag = { bg:true, moved:false, sx:e.clientX, sy:e.clientY, panX:topView.panX, panY:topView.panY, m:pt };
+    drag = { bg:true, moved:false, sx:e.clientX, sy:e.clientY, panX:topView.panX, panY:topView.panY };
   }
 });
 window.addEventListener('mousemove', e=>{
@@ -284,11 +300,11 @@ window.addEventListener('mousemove', e=>{
   if(drag.pid!=null){
     const pt = toMeter(e);
     const p = getPerson(drag.pid);
-    if(p){ p.x = clamp(pt.x,0,L); p.y = clamp(pt.y,0,W); drag.moved=true; requestRender(true); }
+    if(p){ p.x = clamp(pt.x+drag.gdx,0,L); p.y = clamp(pt.y+drag.gdy,0,W); drag.moved=true; requestRender(true); }
   } else if(drag.id!=null){
     const pt = toMeter(e);
     const s = getSensor(drag.id);
-    if(s){ s.x = clamp(pt.x,0,L); s.y = clamp(pt.y,0,W); drag.moved=true; requestRender(true); }
+    if(s){ s.x = clamp(pt.x+drag.gdx,0,L); s.y = clamp(pt.y+drag.gdy,0,W); drag.moved=true; requestRender(true); }
   } else if(drag.bg){
     const dx=e.clientX-drag.sx, dy=e.clientY-drag.sy;
     const vbw = parseFloat(topSvg.getAttribute('viewBox').split(' ')[2]);
@@ -303,24 +319,59 @@ window.addEventListener('mouseup', e=>{
   if(!drag) return;
   if(drag.pid!=null && !drag.moved){ state.selectedPerson=drag.pid; state.selected=null; renderAll(); }
   else if(drag.id!=null && !drag.moved){ state.selected=drag.id; state.selectedPerson=null; renderAll(); }
-  else if(drag.bg && !drag.moved){ addSensorAt(drag.m.x, drag.m.y); }
+  else if(drag.bg && !drag.moved){ state.selected=null; state.selectedPerson=null; renderAll(); }
   drag=null;
 });
-topSvg.addEventListener('contextmenu', e=>{
-  e.preventDefault();
-  const t=e.target;
-  if(t.dataset && t.dataset.personId){
-    const id=+t.dataset.personId;
-    persons = persons.filter(p=>p.id!==id);
-    if(state.selectedPerson===id) state.selectedPerson=null;
-    renderAll();
-  } else if(t.dataset && t.dataset.sensorId){
-    const id=+t.dataset.sensorId;
-    sensors = sensors.filter(s=>s.id!==id);
-    if(state.selected===id) state.selected=null;
-    renderAll();
-  }
-});
+// ---------- 右键上下文菜单 ----------
+const ctxMenu = document.createElement('div');
+ctxMenu.id='ctxMenu';
+ctxMenu.style.cssText='position:fixed;z-index:50;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px;min-width:150px;display:none;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;';
+document.body.appendChild(ctxMenu);
+function showCtx(e, items){
+  ctxMenu.innerHTML='';
+  items.forEach(it=>{
+    const d=document.createElement('div');
+    d.textContent=it.label;
+    d.style.cssText='padding:7px 12px;cursor:pointer;border-radius:6px;color:'+(it.danger?'#ff6b6b':'#c9d1d9')+';white-space:nowrap;';
+    d.onmouseenter=()=>d.style.background='#21262d';
+    d.onmouseleave=()=>d.style.background='transparent';
+    d.onclick=()=>{ hideCtx(); it.action(); };
+    ctxMenu.appendChild(d);
+  });
+  ctxMenu.style.display='block';
+  ctxMenu.style.left=Math.min(e.clientX, window.innerWidth-170)+'px';
+  ctxMenu.style.top=Math.min(e.clientY, window.innerHeight-(items.length*32+12))+'px';
+}
+function hideCtx(){ ctxMenu.style.display='none'; }
+window.addEventListener('mousedown', e=>{ if(!ctxMenu.contains(e.target)) hideCtx(); }, true);
+function attachCtx(svg, horiz){
+  svg.addEventListener('contextmenu', e=>{
+    e.preventDefault();
+    const pe=e.target.closest('[data-person-id]');
+    const se=e.target.closest('[data-sensor-id]');
+    const items=[];
+    if(se){
+      const id=+se.dataset.sensorId;
+      items.push({label:'选中传感器 S'+id, action:()=>{ state.selected=id; state.selectedPerson=null; renderAll(); }});
+      items.push({label:'删除传感器 S'+id, danger:true, action:()=>{ sensors=sensors.filter(s=>s.id!==id); if(state.selected===id) state.selected=null; renderAll(); }});
+    } else if(pe){
+      const id=+pe.dataset.personId;
+      items.push({label:'选人 人'+id, action:()=>{ state.selectedPerson=id; state.selected=null; renderAll(); }});
+      items.push({label:'删除人物 人'+id, danger:true, action:()=>{ persons=persons.filter(p=>p.id!==id); if(state.selectedPerson===id) state.selectedPerson=null; renderAll(); }});
+    } else {
+      let x, y;
+      if(horiz==='top'){ const pt=toMeter(e); x=clamp(pt.x,0,L); y=clamp(pt.y,0,W); }
+      else if(horiz==='x'){ x=clamp(elevToMeter(svg,e),0,L); y=W/2; }
+      else { y=clamp(elevToMeter(svg,e),0,W); x=L/2; }
+      items.push({label:'➕ 添加传感器', action:()=>addSensorAt(x,y)});
+      items.push({label:'➕ 添加人物', action:()=>addPersonAt(x,y)});
+    }
+    showCtx(e, items);
+  });
+}
+attachCtx(topSvg,'top');
+attachCtx(document.getElementById('frontSvg'),'x');
+attachCtx(document.getElementById('sideSvg'),'y');
 topSvg.addEventListener('wheel', e=>{
   e.preventDefault();
   const f = e.deltaY>0 ? 1.1 : 0.9;
@@ -366,27 +417,86 @@ function renderElevation(svg, horiz){
       s+=`<polygon points="${c-rp},${H} ${c+rp},${H} ${c},${apexY}" fill="rgba(255,170,60,0.09)" stroke="#ffae3b" stroke-width="0.025"/>`;
     }
     const sel = se.id===state.selected;
-    s+=`<circle cx="${c}" cy="${apexY}" r="${sel?0.18:0.12}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.015"/>`;
+    s+=`<circle data-sensor-id="${se.id}" cx="${c}" cy="${apexY}" r="${sel?0.18:0.12}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.015" style="cursor:pointer"/>`;
     s+=`<text x="${c}" y="${apexY-0.3}" font-size="0.2" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
   });
-  // 人物（用真实比例线 + 扫描段）
+  // 人物（前/侧视图：正常人体结构比例模型 + 扫描覆盖段）
   persons.forEach(p=>{
     const c = horiz==='x' ? p.x : p.y;
+    const h = p.height;
     const sc=scanHeights(p.x,p.y);
-    const topY = H - p.height;
-    const mhY = H - Math.min(p.height, sc.mH);
-    const phY = H - Math.min(p.height, sc.pH);
-    s+=`<line x1="${c}" y1="${H}" x2="${c}" y2="${topY}" stroke="#9aa4b2" stroke-width="0.04"/>`;
-    if(sc.mH>0) s+=`<line x1="${c}" y1="${H}" x2="${c}" y2="${mhY}" stroke="#2ea043" stroke-width="0.12"/>`;
-    if(state.showPresence && sc.pH>0) s+=`<line x1="${c}" y1="${H}" x2="${c}" y2="${phY}" stroke="#ffae3b" stroke-width="0.06"/>`;
-    s+=`<circle cx="${c}" cy="${topY}" r="0.12" fill="#9aa4b2"/>`;
-    s+=`<text x="${c}" y="${topY-0.25}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>`;
+    const col = (sc.mH>=h)? '#2ea043' : (sc.mH>0? '#ffae3b' : '#ff6b6b');
+    const feetY=H, headTopY=H-h;
+    const shY=H-h*0.82, hipY=H-h*0.50, headCy=H-h*0.90, headR=h*0.07;
+    const sw=h*0.13, legSpread=h*0.10, armLen=h*0.22;
+    s+=`<g data-person-id="${p.id}" style="cursor:pointer">`;
+    // 腿
+    s+=`<line x1="${c}" y1="${hipY}" x2="${c-legSpread}" y2="${feetY}" stroke="${col}" stroke-width="0.045" stroke-linecap="round"/>`;
+    s+=`<line x1="${c}" y1="${hipY}" x2="${c+legSpread}" y2="${feetY}" stroke="${col}" stroke-width="0.045" stroke-linecap="round"/>`;
+    // 躯干
+    s+=`<line x1="${c}" y1="${hipY}" x2="${c}" y2="${shY}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`;
+    // 手臂
+    s+=`<line x1="${c}" y1="${shY+h*0.02}" x2="${c-armLen}" y2="${H-h*0.45}" stroke="${col}" stroke-width="0.04" stroke-linecap="round"/>`;
+    s+=`<line x1="${c}" y1="${shY+h*0.02}" x2="${c+armLen}" y2="${H-h*0.45}" stroke="${col}" stroke-width="0.04" stroke-linecap="round"/>`;
+    // 头
+    s+=`<circle cx="${c}" cy="${headCy}" r="${headR}" fill="${col}"/>`;
+    // 从地面起的运动/存在扫描覆盖段
+    if(sc.mH>0){ const my=H-Math.min(h,sc.mH); s+=`<rect x="${c-sw/2}" y="${my}" width="${sw}" height="${(H-my).toFixed(3)}" fill="rgba(46,160,67,0.30)"/>`; }
+    if(state.showPresence && sc.pH>0){ const py=H-Math.min(h,sc.pH); s+=`<line x1="${c-sw/2-0.015}" y1="${py}" x2="${c+sw/2+0.015}" y2="${py}" stroke="#ffae3b" stroke-width="0.02"/>`; }
+    s+=`<text x="${c}" y="${headTopY-0.12}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>`;
+    s+=`</g>`;
   });
   svg.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
   svg.innerHTML = s;
 }
 function renderFront(){ renderElevation(document.getElementById('frontSvg'),'x'); }
 function renderSide(){ renderElevation(document.getElementById('sideSvg'),'y'); }
+
+// 前/侧视图拖拽：只改与水平轴对应的坐标（前视图改 X，侧视图改 Y）
+function elevToMeter(svg, evt){
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  const ctm = svg.getScreenCTM();
+  const p = pt.matrixTransform(ctm.inverse());
+  return p.x; // viewBox 水平坐标即世界水平轴(米)
+}
+function setupElevDrag(svg, horiz){
+  let drag = null;
+  svg.addEventListener('mousedown', e=>{
+    if(e.button!==0) return;
+    const pe=e.target.closest('[data-person-id]');
+    const se=e.target.closest('[data-sensor-id]');
+    if(pe){
+      const p=getPerson(+pe.dataset.personId);
+      if(p){ const cur = horiz==='x'? p.x : p.y; const val=elevToMeter(svg,e); drag={ pid:p.id, moved:false, sx:e.clientX, sy:e.clientY, gd:cur-val }; }
+    } else if(se){
+      const s=getSensor(+se.dataset.sensorId);
+      if(s){ const cur = horiz==='x'? s.x : s.y; const val=elevToMeter(svg,e); drag={ id:s.id, moved:false, sx:e.clientX, sy:e.clientY, gd:cur-val }; }
+    } else { drag={ bg:true }; }
+  });
+  window.addEventListener('mousemove', e=>{
+    if(!drag || drag.bg) return;
+    const val = elevToMeter(svg, e) + drag.gd;
+    const lim = horiz==='x' ? L : W;
+    if(drag.pid!=null){
+      const p = getPerson(drag.pid);
+      if(p){ if(horiz==='x') p.x = clamp(val,0,L); else p.y = clamp(val,0,W); drag.moved=true; requestRender(true); }
+    } else if(drag.id!=null){
+      const s = getSensor(drag.id);
+      if(s){ if(horiz==='x') s.x = clamp(val,0,L); else s.y = clamp(val,0,W); drag.moved=true; requestRender(true); }
+    }
+  });
+  window.addEventListener('mouseup', ()=>{
+    if(!drag) return;
+    if(drag.bg){ state.selected=null; state.selectedPerson=null; renderAll(); }
+    else if(!drag.moved){
+      if(drag.pid!=null){ state.selectedPerson=drag.pid; state.selected=null; }
+      else { state.selected=drag.id; state.selectedPerson=null; }
+      renderAll();
+    }
+    drag=null;
+  });
+}
 
 // ---------- 3D ----------
 let scene, camera, renderer, controls, roomGroup, sensorGroup;
@@ -765,16 +875,20 @@ function renderList(){
         <button class="danger" data-del="${s.id}" style="padding:2px 8px">删</button></div>
       <label class="chk"><input type="checkbox" data-m="${s.id}" ${s.motion?'checked':''}> 运动</label>
       <label class="chk"><input type="checkbox" data-p="${s.id}" ${s.presence?'checked':''}> 存在</label>
+      <div class="row" style="margin-top:4px;gap:6px">
+        <span class="muted" style="width:auto">X</span><input type="number" step="0.1" value="${s.x.toFixed(2)}" data-sx="${s.id}" style="width:58px">
+        <span class="muted" style="width:auto">Z(宽)</span><input type="number" step="0.1" value="${s.y.toFixed(2)}" data-sz="${s.id}" style="width:58px">
+      </div>
       <div class="row" style="margin-top:4px">
         <span class="muted" style="width:54px">挂高(m)</span>
         <input type="number" min="0.1" step="0.1" value="${s.mountH}" data-h="${s.id}">
       </div>
-      <div class="muted" style="margin-top:4px">坐标 X:${s.x.toFixed(1)} Y:${s.mountH.toFixed(1)} Z:${s.y.toFixed(1)}</div>
+      <div class="muted" style="margin-top:4px">离墙：左 ${s.x.toFixed(1)} · 右 ${(L-s.x).toFixed(1)} · 前 ${s.y.toFixed(1)} · 后 ${(W-s.y).toFixed(1)} (米)</div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-list-id]').forEach(el=>{
     el.addEventListener('click', e=>{
-      if(e.target.dataset.del||e.target.dataset.m||e.target.dataset.p||e.target.dataset.h) return;
+      if(e.target.dataset.del||e.target.dataset.m||e.target.dataset.p||e.target.dataset.h||e.target.dataset.sx||e.target.dataset.sz) return;
       state.selected = +el.dataset.listId; state.selectedPerson=null; renderAll();
     });
   });
@@ -792,6 +906,12 @@ function renderList(){
   box.querySelectorAll('[data-h]').forEach(i=>i.addEventListener('change', e=>{
     const v=parseFloat(e.target.value); if(v>0){ getSensor(+i.dataset.h).mountH=v; buildRoom(); fitCamera(); renderAll(); }
   }));
+  box.querySelectorAll('[data-sx]').forEach(i=>i.addEventListener('change', e=>{
+    const v=parseFloat(e.target.value); if(!isNaN(v)){ getSensor(+i.dataset.sx).x=clamp(v,0,L); renderAll(); }
+  }));
+  box.querySelectorAll('[data-sz]').forEach(i=>i.addEventListener('change', e=>{
+    const v=parseFloat(e.target.value); if(!isNaN(v)){ getSensor(+i.dataset.sz).y=clamp(v,0,W); renderAll(); }
+  }));
 }
 function renderPersonList(){
   document.getElementById('personCount').textContent = persons.length;
@@ -807,17 +927,20 @@ function renderPersonList(){
     return `<div class="sensor-item ${sel?'sel':''}" data-plist-id="${p.id}">
       <div class="top"><b>人${p.id}</b>
         <button class="danger" data-pdel="${p.id}" style="padding:2px 8px">删</button></div>
+      <div class="row" style="margin-top:4px;gap:6px">
+        <span class="muted" style="width:auto">X</span><input type="number" step="0.1" value="${p.x.toFixed(2)}" data-px="${p.id}" style="width:58px">
+        <span class="muted" style="width:auto">Y(宽)</span><input type="number" step="0.1" value="${p.y.toFixed(2)}" data-py="${p.id}" style="width:58px">
+      </div>
       <div class="row" style="margin-top:4px">
         <span class="muted" style="width:54px">身高(m)</span>
         <input type="number" min="0.5" step="0.05" value="${p.height}" data-ph="${p.id}">
       </div>
-      <div class="muted" style="margin-top:4px">坐标 (${p.x.toFixed(1)}, ${p.y.toFixed(1)})</div>
       <div style="margin-top:4px;font-size:11px">${status}${pStatus}</div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-plist-id]').forEach(el=>{
     el.addEventListener('click', e=>{
-      if(e.target.dataset.pdel||e.target.dataset.ph) return;
+      if(e.target.dataset.pdel||e.target.dataset.ph||e.target.dataset.px||e.target.dataset.py) return;
       state.selectedPerson=+el.dataset.plistId; state.selected=null; renderAll();
     });
   });
@@ -828,6 +951,12 @@ function renderPersonList(){
   }));
   box.querySelectorAll('[data-ph]').forEach(i=>i.addEventListener('change', e=>{
     const v=parseFloat(e.target.value); if(v>0.3){ getPerson(+i.dataset.ph).height=v; renderAll(); }
+  }));
+  box.querySelectorAll('[data-px]').forEach(i=>i.addEventListener('change', e=>{
+    const v=parseFloat(e.target.value); if(!isNaN(v)){ getPerson(+i.dataset.px).x=clamp(v,0,L); renderAll(); }
+  }));
+  box.querySelectorAll('[data-py]').forEach(i=>i.addEventListener('change', e=>{
+    const v=parseFloat(e.target.value); if(!isNaN(v)){ getPerson(+i.dataset.py).y=clamp(v,0,W); renderAll(); }
   }));
 }
 
@@ -916,12 +1045,22 @@ document.getElementById('btn3dPng').addEventListener('click', ()=>{
 });
 
 // ---------- 启动 ----------
+setupElevDrag(document.getElementById('frontSvg'), 'x');
+setupElevDrag(document.getElementById('sideSvg'), 'y');
 if(typeof THREE === 'undefined'){
   document.getElementById('view3d').innerHTML = '<div style="padding:20px;color:#ff6b6b">3D 加载失败：本地 libs/three.min.js 未找到。请将本网页与 libs 文件夹放在同一目录后重试。</div>';
   // 即便 3D 不可用，仍渲染 2D 视图
   renderAll();
 } else {
-  requestAnimationFrame(()=>{ init3D(); addSensorAt(L/2, W/2); });
+  requestAnimationFrame(()=>{
+    try{
+      init3D();
+      addSensorAt(L/2, W/2);
+    }catch(err){
+      console.error(err);
+      document.getElementById('view3d').innerHTML = '<div style="padding:20px;color:#ff6b6b">3D 初始化失败：'+(err&&err.message)+'</div>';
+    }
+  });
 }
 </script>
 </body>
