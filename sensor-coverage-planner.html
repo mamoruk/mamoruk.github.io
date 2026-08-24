@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>人在传感器覆盖规划器</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c232c; --border:#30363d;
+    --text:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --green:#7ee787;
+    --red:#ff6b6b; --orange:#ffae3b;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,"Microsoft YaHei",sans-serif;font-size:13px;}
+  header{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  header h1{font-size:15px;margin:0;font-weight:600;}
+  header .hint{color:var(--muted);font-size:12px;}
+  .layout{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 52px);}
+  .side{border-right:1px solid var(--border);padding:12px;overflow:auto;background:var(--panel);}
+  .main{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:1px;background:var(--border);overflow:hidden;}
+  .view{background:var(--bg);position:relative;display:flex;flex-direction:column;min-height:0;}
+  .view .vhead{padding:6px 10px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+  .view .vbody{flex:1;min-height:0;position:relative;}
+  svg{width:100%;height:100%;display:block;background:var(--bg);}
+  #view3d{flex:1;min-height:0;}
+  .card{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px;}
+  .card h3{margin:0 0 8px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  label{display:block;margin:6px 0 3px;color:var(--muted);}
+  .row{display:flex;gap:6px;align-items:center;}
+  input[type=number]{width:100%;background:#0d1117;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;}
+  button{background:var(--accent);color:#06121f;border:none;border-radius:6px;padding:7px 10px;cursor:pointer;font-weight:600;font-size:12px;}
+  button.ghost{background:transparent;color:var(--text);border:1px solid var(--border);}
+  button.danger{background:transparent;color:var(--red);border:1px solid var(--red);}
+  button:hover{filter:brightness(1.08);}
+  .btns{display:flex;flex-wrap:wrap;gap:6px;}
+  .chk{display:flex;align-items:center;gap:6px;margin:5px 0;cursor:pointer;}
+  .chk input{accent-color:var(--accent);}
+  .sensor-item{border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px;background:#0d1117;}
+  .sensor-item.sel{border-color:var(--green);}
+  .sensor-item .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .sensor-item .top b{color:var(--green);}
+  .stats{font-size:12px;line-height:1.7;}
+  .stats .big{font-size:18px;font-weight:700;}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+  .swatch{width:14px;height:10px;border-radius:2px;display:inline-block;}
+  .muted{color:var(--muted);}
+  .tag{font-size:11px;padding:1px 6px;border-radius:10px;background:#0d1117;border:1px solid var(--border);}
+</style>
+</head>
+<body>
+<header>
+  <h1>人在传感器覆盖规划器</h1>
+  <span class="hint">顶视图：点击空白处添加传感器 · 拖拽移动 · 右键删除</span>
+  <span class="legend">
+    <span><i class="dot" style="background:var(--red)"></i>运动检测(直径14m@2.8m)</span>
+    <span><i class="dot" style="background:var(--orange)"></i>存在检测(直径10m@2.8m)</span>
+    <span><i class="swatch" style="background:rgba(255,60,60,.5)"></i>盲区</span>
+  </span>
+</header>
+
+<div class="layout">
+  <div class="side">
+    <div class="card">
+      <h3>房间尺寸 (米)</h3>
+      <div class="row">
+        <div style="flex:1"><label>长 L</label><input id="inL" type="number" min="0.1" step="0.1" value="10"></div>
+        <div style="flex:1"><label>宽 W</label><input id="inW" type="number" min="0.1" step="0.1" value="8"></div>
+        <div style="flex:1"><label>高 H</label><input id="inH" type="number" min="0.1" step="0.1" value="3"></div>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button id="btnApply">应用尺寸</button>
+        <button class="ghost" id="btnFit">复位视图</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>图层</h3>
+      <label class="chk"><input type="checkbox" id="ckMotion" checked> 运动检测范围</label>
+      <label class="chk"><input type="checkbox" id="ckPresence" checked> 存在检测范围</label>
+      <label class="chk"><input type="checkbox" id="ckBlind" checked> 盲区高亮</label>
+      <label class="chk"><input type="checkbox" id="ck3DCones" checked> 3D 显示锥体</label>
+    </div>
+
+    <div class="card">
+      <h3>操作</h3>
+      <div class="btns">
+        <button class="ghost" id="btnAdd">+ 添加传感器</button>
+        <button class="danger" id="btnDel">删除选中</button>
+        <button class="ghost" id="btnClear">清空</button>
+      </div>
+      <div class="btns" style="margin-top:6px">
+        <button class="ghost" id="btnSave">保存JSON</button>
+        <button class="ghost" id="btnLoad">载入JSON</button>
+        <button class="ghost" id="btnTopPng">导出顶视图</button>
+        <button class="ghost" id="btn3dPng">导出3D</button>
+        <input id="fileInput" type="file" accept="application/json" style="display:none">
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>覆盖率统计</h3>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="card">
+      <h3>传感器列表 (<span id="sensorCount">0</span>)</h3>
+      <div id="sensorList"></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="view">
+      <div class="vhead"><span>顶视图 (俯视 · 地面投影)</span><span class="muted">滚轮缩放 · 拖背景平移</span></div>
+      <div class="vbody"><svg id="topSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    </div>
+    <div class="view">
+      <div class="vhead"><span>3D 视图</span><span class="muted">左键旋转 · 滚轮缩放 · 右键平移</span></div>
+      <div class="vbody"><div id="view3d"></div></div>
+    </div>
+    <div class="view">
+      <div class="vhead"><span>前视图 (沿宽方向看 · 锥体剖面)</span></div>
+      <div class="vbody"><svg id="frontSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    </div>
+    <div class="view">
+      <div class="vhead"><span>侧视图 (沿长方向看 · 锥体剖面)</span></div>
+      <div class="vbody"><svg id="sideSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/three@0.137.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.137.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+// ---------- 状态 ----------
+const BASE_MOTION = 7;   // 半径(米) @2.8m
+const BASE_PRESENCE = 5; // 半径(米) @2.8m
+const REF_H = 2.8;
+
+let L = 10, W = 8, H = 3;
+let sensors = [];
+let uid = 1;
+const state = {
+  showMotion:true, showPresence:true, showBlind:true, show3DCones:true,
+  selected:null
+};
+const topView = { zoom:1, panX:0, panY:0 };
+
+function radii(s){
+  const k = s.mountH / REF_H;
+  return { rm: s.motion ? BASE_MOTION*k : 0, rp: s.presence ? BASE_PRESENCE*k : 0, k };
+}
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function getSensor(id){ return sensors.find(s=>s.id===id); }
+
+// ---------- 顶视图 ----------
+const topSvg = document.getElementById('topSvg');
+function computeTopFit(){
+  const m = 1;
+  let minX=0, maxX=L, minY=0, maxY=W;
+  sensors.forEach(s=>{
+    const {rm,rp} = radii(s); const r = Math.max(rm,rp);
+    minX=Math.min(minX, s.x-r); maxX=Math.max(maxX, s.x+r);
+    minY=Math.min(minY, s.y-r); maxY=Math.max(maxY, s.y+r);
+  });
+  return { x:minX-m, y:minY-m, w:(maxX-minX)+2*m, h:(maxY-minY)+2*m };
+}
+function applyTopViewBox(){
+  const fit = computeTopFit();
+  const w = fit.w / topView.zoom, h = fit.h / topView.zoom;
+  const cx = fit.x + fit.w/2 + topView.panX;
+  const cy = fit.y + fit.h/2 + topView.panY;
+  topSvg.setAttribute('viewBox', `${cx-w/2} ${cy-h/2} ${w} ${h}`);
+}
+function renderTop(){
+  let s = `<rect x="0" y="0" width="${L}" height="${W}" fill="#11161d" stroke="#3a4452" stroke-width="0.04"/>`;
+  let defs = '<defs>';
+  if(state.showBlind && state.showMotion){
+    defs += `<mask id="bm"><rect x="0" y="0" width="${L}" height="${W}" fill="white"/>`;
+    sensors.forEach(se=>{ const r=radii(se).rm; if(r>0) defs+=`<circle cx="${se.x}" cy="${se.y}" r="${r}" fill="black"/>`; });
+    defs += '</mask>';
+  }
+  if(state.showBlind && state.showPresence){
+    defs += `<mask id="bp"><rect x="0" y="0" width="${L}" height="${W}" fill="white"/>`;
+    sensors.forEach(se=>{ const r=radii(se).rp; if(r>0) defs+=`<circle cx="${se.x}" cy="${se.y}" r="${r}" fill="black"/>`; });
+    defs += '</mask>';
+  }
+  defs += '</defs>';
+  s += defs;
+  if(state.showBlind && state.showMotion) s+=`<rect x="0" y="0" width="${L}" height="${W}" fill="rgba(255,60,60,0.30)" mask="url(#bm)"/>`;
+  if(state.showBlind && state.showPresence) s+=`<rect x="0" y="0" width="${L}" height="${W}" fill="rgba(255,150,40,0.32)" mask="url(#bp)"/>`;
+  sensors.forEach(se=>{
+    const {rm,rp}=radii(se);
+    if(state.showMotion && rm>0) s+=`<circle cx="${se.x}" cy="${se.y}" r="${rm}" fill="rgba(255,80,80,0.05)" stroke="#ff6b6b" stroke-width="0.03" stroke-dasharray="0.18 0.12"/>`;
+    if(state.showPresence && rp>0) s+=`<circle cx="${se.x}" cy="${se.y}" r="${rp}" fill="rgba(255,170,60,0.07)" stroke="#ffae3b" stroke-width="0.03"/>`;
+  });
+  sensors.forEach(se=>{
+    const sel = se.id===state.selected;
+    s+=`<circle data-sensor-id="${se.id}" cx="${se.x}" cy="${se.y}" r="${sel?0.28:0.18}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.02" style="cursor:pointer"/>`;
+    s+=`<text x="${se.x}" y="${se.y-0.38}" font-size="0.24" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
+  });
+  topSvg.innerHTML = s;
+  applyTopViewBox();
+}
+
+// 坐标转换
+function toMeter(evt){
+  const pt = topSvg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  const ctm = topSvg.getScreenCTM();
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x:p.x, y:p.y };
+}
+let drag = null;
+topSvg.addEventListener('mousedown', e=>{
+  const pt = toMeter(e);
+  const t = e.target;
+  if(t.dataset && t.dataset.sensorId){
+    drag = { id:+t.dataset.sensorId, moved:false, sx:e.clientX, sy:e.clientY };
+  } else {
+    drag = { bg:true, moved:false, sx:e.clientX, sy:e.clientY, panX:topView.panX, panY:topView.panY, m:pt };
+  }
+});
+window.addEventListener('mousemove', e=>{
+  if(!drag) return;
+  if(drag.id!=null){
+    const pt = toMeter(e);
+    const s = getSensor(drag.id);
+    if(s){ s.x = clamp(pt.x,0,L); s.y = clamp(pt.y,0,W); drag.moved=true; renderAll(); }
+  } else if(drag.bg){
+    const dx=e.clientX-drag.sx, dy=e.clientY-drag.sy;
+    const vbw = parseFloat(topSvg.getAttribute('viewBox').split(' ')[2]);
+    const scale = vbw / topSvg.clientWidth;
+    topView.panX = drag.panX - dx*scale;
+    topView.panY = drag.panY + dy*scale;
+    if(Math.abs(dx)+Math.abs(dy)>3) drag.moved=true;
+    applyTopViewBox();
+  }
+});
+window.addEventListener('mouseup', e=>{
+  if(!drag) return;
+  if(drag.id!=null && !drag.moved){ state.selected=drag.id; renderAll(); }
+  else if(drag.bg && !drag.moved){ addSensorAt(drag.m.x, drag.m.y); }
+  drag=null;
+});
+topSvg.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  const t=e.target;
+  if(t.dataset && t.dataset.sensorId){
+    const id=+t.dataset.sensorId;
+    sensors = sensors.filter(s=>s.id!==id);
+    if(state.selected===id) state.selected=null;
+    renderAll();
+  }
+});
+topSvg.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const f = e.deltaY>0 ? 1.1 : 0.9;
+  topView.zoom = clamp(topView.zoom*f, 0.2, 8);
+  applyTopViewBox();
+}, {passive:false});
+
+function addSensorAt(x,y){
+  x=clamp(x,0,L); y=clamp(y,0,W);
+  const s={ id:uid++, x, y, mountH:2.8, motion:true, presence:true };
+  sensors.push(s); state.selected=s.id; renderAll();
+}
+
+// ---------- 立面视图 (前/侧) ----------
+function renderElevation(svg, horiz, getH0, getH1){
+  // horiz: 'x' (前视图, 横向=长) or 'y' (侧视图, 横向=宽)
+  const wMax = horiz==='x' ? L : W;
+  let minX=0, maxX=wMax;
+  sensors.forEach(s=>{
+    const {rm,rp}=radii(s); const r=Math.max(rm,rp);
+    const c = horiz==='x' ? s.x : s.y;
+    minX=Math.min(minX, c-r); maxX=Math.max(maxX, c+r);
+  });
+  const m=1;
+  const vbX=minX-m, vbW=(maxX-minX)+2*m, vbY=-m, vbH=H+2*m;
+  let s='';
+  s+=`<rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="#11161d"/>`;
+  // 房间轮廓
+  s+=`<rect x="0" y="0" width="${wMax}" height="${H}" fill="none" stroke="#3a4452" stroke-width="0.03"/>`;
+  // 地面线
+  s+=`<line x1="0" y1="${H}" x2="${wMax}" y2="${H}" stroke="#586069" stroke-width="0.04"/>`;
+  // 天花板线
+  s+=`<line x1="0" y1="0" x2="${wMax}" y2="0" stroke="#2a3038" stroke-width="0.02" stroke-dasharray="0.1 0.08"/>`;
+  sensors.forEach(se=>{
+    const c = horiz==='x' ? se.x : se.y;
+    const {rm,rp}=radii(se);
+    const apexY = H - se.mountH;
+    if(state.showMotion && rm>0){
+      s+=`<polygon points="${c-rm},${H} ${c+rm},${H} ${c},${apexY}" fill="rgba(255,80,80,0.07)" stroke="#ff6b6b" stroke-width="0.025" stroke-dasharray="0.15 0.1"/>`;
+    }
+    if(state.showPresence && rp>0){
+      s+=`<polygon points="${c-rp},${H} ${c+rp},${H} ${c},${apexY}" fill="rgba(255,170,60,0.09)" stroke="#ffae3b" stroke-width="0.025"/>`;
+    }
+    const sel = se.id===state.selected;
+    s+=`<circle cx="${c}" cy="${apexY}" r="${sel?0.18:0.12}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.015"/>`;
+    s+=`<text x="${c}" y="${apexY-0.3}" font-size="0.22" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
+  });
+  svg.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
+  svg.innerHTML = s;
+}
+function renderFront(){ renderElevation(document.getElementById('frontSvg'),'x'); }
+function renderSide(){ renderElevation(document.getElementById('sideSvg'),'y'); }
+
+// ---------- 3D ----------
+let scene, camera, renderer, controls, roomGroup, sensorGroup;
+function init3D(){
+  const cont = document.getElementById('view3d');
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0d1117);
+  camera = new THREE.PerspectiveCamera(50, cont.clientWidth/cont.clientHeight, 0.1, 1000);
+  renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+  renderer.setSize(cont.clientWidth, cont.clientHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  cont.appendChild(renderer.domElement);
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.6); dl.position.set(1,2,1); scene.add(dl);
+  roomGroup = new THREE.Group(); scene.add(roomGroup);
+  sensorGroup = new THREE.Group(); scene.add(sensorGroup);
+  buildRoom();
+  fitCamera();
+  window.addEventListener('resize', onResize);
+  animate();
+}
+function onResize(){
+  const cont = document.getElementById('view3d');
+  camera.aspect = cont.clientWidth/cont.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(cont.clientWidth, cont.clientHeight);
+}
+function buildRoom(){
+  while(roomGroup.children.length) roomGroup.remove(roomGroup.children[0]);
+  const box = new THREE.BoxGeometry(L,H,W);
+  const edges = new THREE.EdgesGeometry(box);
+  const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0x3a4452}));
+  line.position.set(L/2, H/2, W/2);
+  roomGroup.add(line);
+  // 地面网格
+  const gs = Math.max(L,W);
+  const grid = new THREE.GridHelper(gs, Math.ceil(gs), 0x2a3340, 0x20262e);
+  grid.position.set(L/2, 0.001, W/2);
+  roomGroup.add(grid);
+  // 轴标
+  const axes = new THREE.AxesHelper(Math.min(L,W,H)*0.4);
+  roomGroup.add(axes);
+}
+function makeCone(x,y,mountH,r,color){
+  const geo = new THREE.ConeGeometry(r, mountH, 48, 1, true);
+  const mat = new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.16, side:THREE.DoubleSide, depthWrite:false});
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, mountH/2, y);
+  return m;
+}
+function render3D(){
+  while(sensorGroup.children.length) sensorGroup.remove(sensorGroup.children[0]);
+  sensors.forEach(se=>{
+    const {rm,rp}=radii(se);
+    if(state.show3DCones && state.showMotion && rm>0) sensorGroup.add(makeCone(se.x, se.y, se.mountH, rm, 0xff6b6b));
+    if(state.show3DCones && state.showPresence && rp>0) sensorGroup.add(makeCone(se.x, se.y, se.mountH, rp, 0xffae3b));
+    const sph = new THREE.Mesh(new THREE.SphereGeometry(0.12,16,16),
+      new THREE.MeshBasicMaterial({color: se.id===state.selected?0x7ee787:0x58a6ff}));
+    sph.position.set(se.x, se.mountH, se.y);
+    sensorGroup.add(sph);
+  });
+}
+function fitCamera(){
+  const c = new THREE.Vector3(L/2, H/2, W/2);
+  controls.target.copy(c);
+  const d = Math.max(L,W,H);
+  camera.position.set(L/2 + d*0.9, H + d*0.7, W/2 + d*0.9);
+  camera.lookAt(c);
+  controls.update();
+}
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ---------- 统计 ----------
+function coverage(layer){
+  if(sensors.length===0) return 0;
+  const step = Math.max(0.2, Math.min(L,W)/150);
+  let total=0, covered=0;
+  for(let x=0;x<=L+1e-9;x+=step){
+    for(let y=0;y<=W+1e-9;y+=step){
+      total++;
+      let inside=false;
+      for(const s of sensors){
+        const r = layer==='motion'? radii(s).rm : radii(s).rp;
+        if(r>0){
+          const dx=x-s.x, dy=y-s.y;
+          if(dx*dx+dy*dy <= r*r){ inside=true; break; }
+        }
+      }
+      if(inside) covered++;
+    }
+  }
+  return covered/total;
+}
+function updateStats(){
+  const cm = coverage('motion'), cp = coverage('presence');
+  document.getElementById('stats').innerHTML =
+    `<div>传感器数量：<b>${sensors.length}</b></div>`+
+    `<div>运动层覆盖率：<span class="big" style="color:var(--red)">${(cm*100).toFixed(1)}%</span></div>`+
+    `<div>存在层覆盖率：<span class="big" style="color:var(--orange)">${(cp*100).toFixed(1)}%</span></div>`+
+    (sensors.length? `<div class="muted" style="margin-top:6px">挂高 2.8m 时：运动半径 ${BASE_MOTION}m / 存在半径 ${BASE_PRESENCE}m；</div>`+
+      `<div class="muted">当前挂高比例已按各传感器挂高自动缩放。</div>` : '');
+}
+
+// ---------- 传感器列表 ----------
+function renderList(){
+  document.getElementById('sensorCount').textContent = sensors.length;
+  const box = document.getElementById('sensorList');
+  if(sensors.length===0){ box.innerHTML='<div class="muted">暂无传感器</div>'; return; }
+  box.innerHTML = sensors.map(s=>{
+    const sel = s.id===state.selected;
+    return `<div class="sensor-item ${sel?'sel':''}" data-list-id="${s.id}">
+      <div class="top"><b>S${s.id}</b>
+        <button class="danger" data-del="${s.id}" style="padding:2px 8px">删</button></div>
+      <label class="chk"><input type="checkbox" data-m="${s.id}" ${s.motion?'checked':''}> 运动</label>
+      <label class="chk"><input type="checkbox" data-p="${s.id}" ${s.presence?'checked':''}> 存在</label>
+      <div class="row" style="margin-top:4px">
+        <span class="muted" style="width:54px">挂高(m)</span>
+        <input type="number" min="0.1" step="0.1" value="${s.mountH}" data-h="${s.id}">
+      </div>
+      <div class="muted" style="margin-top:4px">坐标 (${s.x.toFixed(1)}, ${s.y.toFixed(1)})</div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-list-id]').forEach(el=>{
+    el.addEventListener('click', e=>{
+      if(e.target.dataset.del||e.target.dataset.m||e.target.dataset.p||e.target.dataset.h) return;
+      state.selected = +el.dataset.listId; renderAll();
+    });
+  });
+  box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id=+b.dataset.del; sensors=sensors.filter(s=>s.id!==id);
+    if(state.selected===id) state.selected=null; renderAll();
+  }));
+  box.querySelectorAll('[data-m]').forEach(c=>c.addEventListener('change', e=>{
+    getSensor(+c.dataset.m).motion=e.target.checked; renderAll();
+  }));
+  box.querySelectorAll('[data-p]').forEach(c=>c.addEventListener('change', e=>{
+    getSensor(+c.dataset.p).presence=e.target.checked; renderAll();
+  }));
+  box.querySelectorAll('[data-h]').forEach(i=>i.addEventListener('change', e=>{
+    const v=parseFloat(e.target.value); if(v>0){ getSensor(+i.dataset.h).mountH=v; renderAll(); }
+  }));
+}
+
+// ---------- 总渲染 ----------
+function renderAll(){
+  renderTop(); renderFront(); renderSide(); render3D(); updateStats(); renderList();
+}
+
+// ---------- 控件 ----------
+document.getElementById('btnApply').addEventListener('click', ()=>{
+  L=Math.max(0.1, parseFloat(document.getElementById('inL').value)||L);
+  W=Math.max(0.1, parseFloat(document.getElementById('inW').value)||W);
+  H=Math.max(0.1, parseFloat(document.getElementById('inH').value)||H);
+  sensors.forEach(s=>{ s.x=clamp(s.x,0,L); s.y=clamp(s.y,0,W); s.mountH=Math.min(s.mountH,H); });
+  buildRoom(); fitCamera(); renderAll();
+});
+document.getElementById('btnFit').addEventListener('click', ()=>{
+  topView.zoom=1; topView.panX=0; topView.panY=0; applyTopViewBox();
+});
+document.getElementById('ckMotion').addEventListener('change', e=>{ state.showMotion=e.target.checked; renderAll(); });
+document.getElementById('ckPresence').addEventListener('change', e=>{ state.showPresence=e.target.checked; renderAll(); });
+document.getElementById('ckBlind').addEventListener('change', e=>{ state.showBlind=e.target.checked; renderAll(); });
+document.getElementById('ck3DCones').addEventListener('change', e=>{ state.show3DCones=e.target.checked; renderAll(); });
+document.getElementById('btnAdd').addEventListener('click', ()=> addSensorAt(L/2, W/2));
+document.getElementById('btnDel').addEventListener('click', ()=>{
+  if(state.selected==null) return;
+  sensors=sensors.filter(s=>s.id!==state.selected); state.selected=null; renderAll();
+});
+document.getElementById('btnClear').addEventListener('click', ()=>{
+  sensors=[]; state.selected=null; renderAll();
+});
+document.getElementById('btnSave').addEventListener('click', ()=>{
+  const data = { L,W,H, sensors: sensors.map(s=>({id:s.id,x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence})) };
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const a=document.createElement('a'); a.download='sensor-layout.json';
+  a.href=URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href);
+});
+document.getElementById('btnLoad').addEventListener('click', ()=> document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const d=JSON.parse(r.result);
+      L=d.L||L; W=d.W||W; H=d.H||H;
+      document.getElementById('inL').value=L; document.getElementById('inW').value=W; document.getElementById('inH').value=H;
+      sensors=(d.sensors||[]).map(s=>({id:s.id, x:s.x, y:s.y, mountH:s.mountH??2.8, motion:s.motion!==false, presence:s.presence!==false}));
+      uid = sensors.reduce((m,s)=>Math.max(m,s.id),0)+1;
+      state.selected=null; buildRoom(); fitCamera(); renderAll();
+    }catch(err){ alert('JSON 解析失败：'+err.message); }
+  };
+  r.readAsText(f); e.target.value='';
+});
+function exportPNG(svgId, name){
+  const svg = document.getElementById(svgId);
+  const clone = svg.cloneNode(true);
+  const vb = svg.getAttribute('viewBox').split(' ').map(Number);
+  const ar = vb[2]/vb[3];
+  const Wc = 1200, Hc = Math.round(Wc/ar);
+  clone.setAttribute('width', Wc); clone.setAttribute('height', Hc);
+  const xml = new XMLSerializer().serializeToString(clone);
+  const img = new Image();
+  img.onload=()=>{
+    const canvas=document.createElement('canvas'); canvas.width=Wc; canvas.height=Hc;
+    const ctx=canvas.getContext('2d'); ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,Wc,Hc); ctx.drawImage(img,0,0,Wc,Hc);
+    const a=document.createElement('a'); a.download=name+'.png'; a.href=canvas.toDataURL('image/png'); a.click();
+  };
+  img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(xml)));
+}
+document.getElementById('btnTopPng').addEventListener('click', ()=> exportPNG('topSvg','顶视图'));
+document.getElementById('btn3dPng').addEventListener('click', ()=>{
+  renderer.render(scene,camera);
+  const a=document.createElement('a'); a.download='3D视图.png'; a.href=renderer.domElement.toDataURL('image/png'); a.click();
+});
+
+// ---------- 启动 ----------
+init3D();
+// 默认放一个中心传感器
+addSensorAt(L/2, W/2);
+</script>
+</body>
+</html>
