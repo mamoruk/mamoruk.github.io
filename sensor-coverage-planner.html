@@ -52,7 +52,7 @@
 <body>
 <header>
   <h1>人在传感器覆盖规划器</h1>
-  <span class="hint">顶视图：点击空白处添加传感器 · 拖拽移动 · 右键删除</span>
+  <span class="hint">顶视图：点空白加传感器 · 拖拽移动 · 右键删除 · 点“添加人物”后拖拽定位</span>
   <span class="legend">
     <span><i class="dot" style="background:var(--red)"></i>运动检测(直径14m@2.8m)</span>
     <span><i class="dot" style="background:var(--orange)"></i>存在检测(直径10m@2.8m)</span>
@@ -87,6 +87,7 @@
       <h3>操作</h3>
       <div class="btns">
         <button class="ghost" id="btnAdd">+ 添加传感器</button>
+        <button class="ghost" id="btnAddPerson">+ 添加人物</button>
         <button class="danger" id="btnDel">删除选中</button>
         <button class="ghost" id="btnClear">清空</button>
       </div>
@@ -107,6 +108,11 @@
     <div class="card">
       <h3>传感器列表 (<span id="sensorCount">0</span>)</h3>
       <div id="sensorList"></div>
+    </div>
+
+    <div class="card">
+      <h3>人物 (<span id="personCount">0</span>)</h3>
+      <div id="personList"></div>
     </div>
   </div>
 
@@ -131,7 +137,6 @@
 </div>
 
 <script src="https://unpkg.com/three@0.137.0/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.137.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 "use strict";
 // ---------- 状态 ----------
@@ -141,10 +146,11 @@ const REF_H = 2.8;
 
 let L = 10, W = 8, H = 3;
 let sensors = [];
-let uid = 1;
+let persons = [];
+let uid = 1, uidP = 1;
 const state = {
   showMotion:true, showPresence:true, showBlind:true, show3DCones:true,
-  selected:null
+  selected:null, selectedPerson:null
 };
 const topView = { zoom:1, panX:0, panY:0 };
 
@@ -154,6 +160,18 @@ function radii(s){
 }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function getSensor(id){ return sensors.find(s=>s.id===id); }
+function getPerson(id){ return persons.find(p=>p.id===id); }
+// 计算地面点(px,py)被各传感器锥体从地面起算的覆盖高度
+function scanHeights(px,py){
+  let mH=0,mS=null,pH=0,pS=null;
+  for(const s of sensors){
+    const {rm,rp}=radii(s);
+    const d=Math.hypot(px-s.x, py-s.y);
+    if(rm>0 && d<=rm){ const hs=s.mountH*(1-d/rm); if(hs>mH){mH=hs;mS=s;} }
+    if(rp>0 && d<=rp){ const hs=s.mountH*(1-d/rp); if(hs>pH){pH=hs;pS=s;} }
+  }
+  return {mH,mS,pH,pS};
+}
 
 // ---------- 顶视图 ----------
 const topSvg = document.getElementById('topSvg');
@@ -201,6 +219,18 @@ function renderTop(){
     s+=`<circle data-sensor-id="${se.id}" cx="${se.x}" cy="${se.y}" r="${sel?0.28:0.18}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.02" style="cursor:pointer"/>`;
     s+=`<text x="${se.x}" y="${se.y-0.38}" font-size="0.24" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
   });
+  // 人物
+  persons.forEach(p=>{
+    const sc=scanHeights(p.x,p.y);
+    const col = (sc.mH>=p.height)? '#2ea043' : (sc.mH>0? '#ffae3b' : '#ff6b6b');
+    const sel = p.id===state.selectedPerson;
+    s+=`<g data-person-id="${p.id}" style="cursor:pointer">
+      <line x1="${p.x}" y1="${p.y}" x2="${p.x}" y2="${p.y-0.45}" stroke="${col}" stroke-width="0.05"/>
+      <circle cx="${p.x}" cy="${p.y-0.55}" r="0.14" fill="${col}" stroke="#fff" stroke-width="0.02"/>
+      <circle cx="${p.x}" cy="${p.y}" r="${sel?0.16:0.12}" fill="${col}" stroke="#fff" stroke-width="0.02"/>
+      <text x="${p.x}" y="${p.y+0.4}" font-size="0.2" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>
+    </g>`;
+  });
   topSvg.innerHTML = s;
   applyTopViewBox();
 }
@@ -217,7 +247,9 @@ let drag = null;
 topSvg.addEventListener('mousedown', e=>{
   const pt = toMeter(e);
   const t = e.target;
-  if(t.dataset && t.dataset.sensorId){
+  if(t.dataset && t.dataset.personId){
+    drag = { pid:+t.dataset.personId, moved:false, sx:e.clientX, sy:e.clientY };
+  } else if(t.dataset && t.dataset.sensorId){
     drag = { id:+t.dataset.sensorId, moved:false, sx:e.clientX, sy:e.clientY };
   } else {
     drag = { bg:true, moved:false, sx:e.clientX, sy:e.clientY, panX:topView.panX, panY:topView.panY, m:pt };
@@ -225,7 +257,11 @@ topSvg.addEventListener('mousedown', e=>{
 });
 window.addEventListener('mousemove', e=>{
   if(!drag) return;
-  if(drag.id!=null){
+  if(drag.pid!=null){
+    const pt = toMeter(e);
+    const p = getPerson(drag.pid);
+    if(p){ p.x = clamp(pt.x,0,L); p.y = clamp(pt.y,0,W); drag.moved=true; renderAll(); }
+  } else if(drag.id!=null){
     const pt = toMeter(e);
     const s = getSensor(drag.id);
     if(s){ s.x = clamp(pt.x,0,L); s.y = clamp(pt.y,0,W); drag.moved=true; renderAll(); }
@@ -241,14 +277,20 @@ window.addEventListener('mousemove', e=>{
 });
 window.addEventListener('mouseup', e=>{
   if(!drag) return;
-  if(drag.id!=null && !drag.moved){ state.selected=drag.id; renderAll(); }
+  if(drag.pid!=null && !drag.moved){ state.selectedPerson=drag.pid; state.selected=null; renderAll(); }
+  else if(drag.id!=null && !drag.moved){ state.selected=drag.id; state.selectedPerson=null; renderAll(); }
   else if(drag.bg && !drag.moved){ addSensorAt(drag.m.x, drag.m.y); }
   drag=null;
 });
 topSvg.addEventListener('contextmenu', e=>{
   e.preventDefault();
   const t=e.target;
-  if(t.dataset && t.dataset.sensorId){
+  if(t.dataset && t.dataset.personId){
+    const id=+t.dataset.personId;
+    persons = persons.filter(p=>p.id!==id);
+    if(state.selectedPerson===id) state.selectedPerson=null;
+    renderAll();
+  } else if(t.dataset && t.dataset.sensorId){
     const id=+t.dataset.sensorId;
     sensors = sensors.filter(s=>s.id!==id);
     if(state.selected===id) state.selected=null;
@@ -266,6 +308,11 @@ function addSensorAt(x,y){
   x=clamp(x,0,L); y=clamp(y,0,W);
   const s={ id:uid++, x, y, mountH:2.8, motion:true, presence:true };
   sensors.push(s); state.selected=s.id; renderAll();
+}
+function addPersonAt(x,y){
+  x=clamp(x,0,L); y=clamp(y,0,W);
+  const p={ id:uidP++, x, y, height:1.7 };
+  persons.push(p); state.selectedPerson=p.id; state.selected=null; renderAll();
 }
 
 // ---------- 立面视图 (前/侧) ----------
@@ -302,6 +349,19 @@ function renderElevation(svg, horiz, getH0, getH1){
     s+=`<circle cx="${c}" cy="${apexY}" r="${sel?0.18:0.12}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.015"/>`;
     s+=`<text x="${c}" y="${apexY-0.3}" font-size="0.22" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
   });
+  // 人物
+  persons.forEach(p=>{
+    const c = horiz==='x' ? p.x : p.y;
+    const sc=scanHeights(p.x,p.y);
+    const topY = H - p.height;
+    const mhY = H - Math.min(p.height, sc.mH);
+    const phY = H - Math.min(p.height, sc.pH);
+    s+=`<line x1="${c}" y1="${H}" x2="${c}" y2="${topY}" stroke="#9aa4b2" stroke-width="0.04"/>`;
+    if(sc.mH>0) s+=`<line x1="${c}" y1="${H}" x2="${c}" y2="${mhY}" stroke="#2ea043" stroke-width="0.12"/>`;
+    if(state.showPresence && sc.pH>0) s+=`<line x1="${c}" y1="${H}" x2="${c}" y2="${phY}" stroke="#ffae3b" stroke-width="0.06"/>`;
+    s+=`<circle cx="${c}" cy="${topY}" r="0.12" fill="#9aa4b2"/>`;
+    s+=`<text x="${c}" y="${topY-0.25}" font-size="0.2" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>`;
+  });
   svg.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
   svg.innerHTML = s;
 }
@@ -310,6 +370,45 @@ function renderSide(){ renderElevation(document.getElementById('sideSvg'),'y'); 
 
 // ---------- 3D ----------
 let scene, camera, renderer, controls, roomGroup, sensorGroup;
+// 轻量自实现轨道控制（避免依赖额外 CDN，且更稳健）
+function makeControls(camera, dom){
+  const c = { target:new THREE.Vector3(), update(){}, enableDamping:true };
+  const sph = new THREE.Spherical();
+  let dragging=false, mode=null, lx=0, ly=0;
+  function sync(){ const off=camera.position.clone().sub(c.target); sph.setFromVector3(off); }
+  dom.addEventListener('contextmenu', e=>e.preventDefault());
+  dom.addEventListener('mousedown', e=>{ dragging=true; mode=(e.button===2||e.button===1)?'pan':'rotate'; lx=e.clientX; ly=e.clientY; sync(); });
+  window.addEventListener('mouseup', ()=>{ dragging=false; });
+  window.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY;
+    if(mode==='rotate'){
+      sph.theta -= dx*0.005;
+      sph.phi = Math.max(0.05, Math.min(Math.PI-0.05, sph.phi - dy*0.005));
+    } else {
+      const k = sph.radius*0.0015;
+      const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+      const right = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
+      const upv = camera.up.clone();
+      c.target.add(right.clone().multiplyScalar(-dx*k)).add(upv.clone().multiplyScalar(dy*k));
+      camera.position.add(right.clone().multiplyScalar(-dx*k)).add(upv.clone().multiplyScalar(dy*k));
+      sync();
+    }
+    const off = new THREE.Vector3().setFromSpherical(sph);
+    camera.position.copy(c.target).add(off);
+    camera.lookAt(c.target);
+  });
+  dom.addEventListener('wheel', e=>{
+    e.preventDefault();
+    sync();
+    sph.radius *= (e.deltaY>0 ? 1.1 : 0.9);
+    sph.radius = Math.max(0.5, Math.min(800, sph.radius));
+    const off = new THREE.Vector3().setFromSpherical(sph);
+    camera.position.copy(c.target).add(off);
+    camera.lookAt(c.target);
+  }, {passive:false});
+  return c;
+}
 function init3D(){
   const cont = document.getElementById('view3d');
   scene = new THREE.Scene();
@@ -319,8 +418,11 @@ function init3D(){
   renderer.setSize(cont.clientWidth, cont.clientHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   cont.appendChild(renderer.domElement);
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
+  controls = makeControls(camera, renderer.domElement);
+  if(window.ResizeObserver){
+    const ro = new ResizeObserver(()=>onResize());
+    ro.observe(cont);
+  }
   scene.add(new THREE.AmbientLight(0xffffff, 0.8));
   const dl = new THREE.DirectionalLight(0xffffff, 0.6); dl.position.set(1,2,1); scene.add(dl);
   roomGroup = new THREE.Group(); scene.add(roomGroup);
@@ -369,6 +471,24 @@ function render3D(){
       new THREE.MeshBasicMaterial({color: se.id===state.selected?0x7ee787:0x58a6ff}));
     sph.position.set(se.x, se.mountH, se.y);
     sensorGroup.add(sph);
+  });
+  persons.forEach(p=>{
+    const sc=scanHeights(p.x,p.y);
+    const h=p.height;
+    const body=new THREE.Mesh(new THREE.BoxGeometry(0.32, h, 0.2), new THREE.MeshBasicMaterial({color:0x9aa4b2}));
+    body.position.set(p.x, h/2, p.y); sensorGroup.add(body);
+    if(sc.mH>0){
+      const gh=Math.min(h, sc.mH);
+      const g=new THREE.Mesh(new THREE.BoxGeometry(0.38, gh, 0.26), new THREE.MeshBasicMaterial({color:0x2ea043, transparent:true, opacity:0.85}));
+      g.position.set(p.x, gh/2, p.y); sensorGroup.add(g);
+    }
+    if(state.showPresence && sc.pH>0){
+      const oh=Math.min(h, sc.pH);
+      const o=new THREE.Mesh(new THREE.BoxGeometry(0.42, oh, 0.3), new THREE.MeshBasicMaterial({color:0xffae3b, transparent:true, opacity:0.45}));
+      o.position.set(p.x, oh/2, p.y); sensorGroup.add(o);
+    }
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.13,12,12), new THREE.MeshBasicMaterial({color: p.id===state.selectedPerson?0x7ee787:0x9aa4b2}));
+    head.position.set(p.x, h+0.05, p.y); sensorGroup.add(head);
   });
 }
 function fitCamera(){
@@ -457,9 +577,47 @@ function renderList(){
   }));
 }
 
+function renderPersonList(){
+  document.getElementById('personCount').textContent = persons.length;
+  const box = document.getElementById('personList');
+  if(persons.length===0){ box.innerHTML='<div class="muted">暂无人物，点“添加人物”后在顶视图拖拽定位</div>'; return; }
+  box.innerHTML = persons.map(p=>{
+    const sc=scanHeights(p.x,p.y);
+    const sel = p.id===state.selectedPerson;
+    const status = sc.mH<=0 ? '<span style="color:#ff6b6b">未被任何传感器扫描</span>'
+      : (sc.mH>=p.height ? `<span style="color:#2ea043">运动全覆盖 (扫描到 ${sc.mH.toFixed(2)}m)</span>`
+      : `<span style="color:#ffae3b">运动扫描到 ${sc.mH.toFixed(2)}m / 身高 ${p.height.toFixed(2)}m</span>`);
+    const pStatus = (state.showPresence && sc.pH>0) ? ` · 存在扫描到 ${sc.pH.toFixed(2)}m` : '';
+    return `<div class="sensor-item ${sel?'sel':''}" data-plist-id="${p.id}">
+      <div class="top"><b>人${p.id}</b>
+        <button class="danger" data-pdel="${p.id}" style="padding:2px 8px">删</button></div>
+      <div class="row" style="margin-top:4px">
+        <span class="muted" style="width:54px">身高(m)</span>
+        <input type="number" min="0.5" step="0.05" value="${p.height}" data-ph="${p.id}">
+      </div>
+      <div class="muted" style="margin-top:4px">坐标 (${p.x.toFixed(1)}, ${p.y.toFixed(1)})</div>
+      <div style="margin-top:4px;font-size:11px">${status}${pStatus}</div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-plist-id]').forEach(el=>{
+    el.addEventListener('click', e=>{
+      if(e.target.dataset.pdel||e.target.dataset.ph) return;
+      state.selectedPerson=+el.dataset.plistId; state.selected=null; renderAll();
+    });
+  });
+  box.querySelectorAll('[data-pdel]').forEach(b=>b.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id=+b.dataset.pdel; persons=persons.filter(p=>p.id!==id);
+    if(state.selectedPerson===id) state.selectedPerson=null; renderAll();
+  }));
+  box.querySelectorAll('[data-ph]').forEach(i=>i.addEventListener('change', e=>{
+    const v=parseFloat(e.target.value); if(v>0.3){ getPerson(+i.dataset.ph).height=v; renderAll(); }
+  }));
+}
+
 // ---------- 总渲染 ----------
 function renderAll(){
-  renderTop(); renderFront(); renderSide(); render3D(); updateStats(); renderList();
+  renderTop(); renderFront(); renderSide(); render3D(); updateStats(); renderList(); renderPersonList();
 }
 
 // ---------- 控件 ----------
@@ -483,10 +641,11 @@ document.getElementById('btnDel').addEventListener('click', ()=>{
   sensors=sensors.filter(s=>s.id!==state.selected); state.selected=null; renderAll();
 });
 document.getElementById('btnClear').addEventListener('click', ()=>{
-  sensors=[]; state.selected=null; renderAll();
+  sensors=[]; persons=[]; state.selected=null; state.selectedPerson=null; renderAll();
 });
+document.getElementById('btnAddPerson').addEventListener('click', ()=> addPersonAt(L/2, W/2));
 document.getElementById('btnSave').addEventListener('click', ()=>{
-  const data = { L,W,H, sensors: sensors.map(s=>({id:s.id,x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence})) };
+  const data = { L,W,H, sensors: sensors.map(s=>({id:s.id,x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence})), persons: persons.map(p=>({id:p.id,x:+p.x.toFixed(3),y:+p.y.toFixed(3),height:p.height})) };
   const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
   const a=document.createElement('a'); a.download='sensor-layout.json';
   a.href=URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href);
@@ -502,7 +661,9 @@ document.getElementById('fileInput').addEventListener('change', e=>{
       document.getElementById('inL').value=L; document.getElementById('inW').value=W; document.getElementById('inH').value=H;
       sensors=(d.sensors||[]).map(s=>({id:s.id, x:s.x, y:s.y, mountH:s.mountH??2.8, motion:s.motion!==false, presence:s.presence!==false}));
       uid = sensors.reduce((m,s)=>Math.max(m,s.id),0)+1;
-      state.selected=null; buildRoom(); fitCamera(); renderAll();
+      persons=(d.persons||[]).map(p=>({id:p.id, x:p.x, y:p.y, height:p.height||1.7}));
+      uidP = persons.reduce((m,p)=>Math.max(m,p.id),0)+1;
+      state.selected=null; state.selectedPerson=null; buildRoom(); fitCamera(); renderAll();
     }catch(err){ alert('JSON 解析失败：'+err.message); }
   };
   r.readAsText(f); e.target.value='';
@@ -530,9 +691,11 @@ document.getElementById('btn3dPng').addEventListener('click', ()=>{
 });
 
 // ---------- 启动 ----------
-init3D();
-// 默认放一个中心传感器
-addSensorAt(L/2, W/2);
+if(typeof THREE === 'undefined'){
+  document.getElementById('view3d').innerHTML = '<div style="padding:20px;color:#ff6b6b">3D 加载失败：无法加载 Three.js（需联网访问 unpkg CDN）。请检查网络后刷新页面。</div>';
+} else {
+  requestAnimationFrame(()=>{ init3D(); addSensorAt(L/2, W/2); });
+}
 </script>
 </body>
 </html>
