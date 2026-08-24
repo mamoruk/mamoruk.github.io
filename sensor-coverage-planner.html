@@ -193,11 +193,6 @@
     </div>
 
     <div class="card">
-      <h3>覆盖率统计</h3>
-      <div class="stats" id="stats"></div>
-    </div>
-
-    <div class="card">
       <h3>传感器列表 (<span id="sensorCount">0</span>)</h3>
       <div id="sensorList"></div>
     </div>
@@ -205,6 +200,11 @@
     <div class="card">
       <h3>人物 (<span id="personCount">0</span>)</h3>
       <div id="personList"></div>
+    </div>
+
+    <div class="card">
+      <h3>覆盖率统计</h3>
+      <div class="stats" id="stats"></div>
     </div>
   </div>
 
@@ -336,6 +336,9 @@ function radii(s){
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function getSensor(id){ return sensors.find(s=>s.id===id); }
 function getPerson(id){ return persons.find(p=>p.id===id); }
+function sensorName(s){ return (s&&String(s.name||'').trim()) || `传感器${s?.id??''}`; }
+function personName(p){ return (p&&String(p.name||'').trim()) || `人物${p?.id??''}`; }
+function escText(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // 射线与线段相交距离。射线方向需为单位向量；返回射线参数 t，未相交返回 null。
 function raySegDistance(px,py,dx,dy,ax,ay,bx,by){
@@ -768,14 +771,10 @@ function buildWalls3D(){
 // ---------- 顶视图 ----------
 const topSvg = document.getElementById('topSvg');
 function computeTopFit(){
-  const m = 1;
-  let minX=0, maxX=L, minY=0, maxY=W;
-  sensors.forEach(s=>{
-    const {rm,rp} = radii(s); const r = Math.max(rm,rp);
-    minX=Math.min(minX, s.x-r); maxX=Math.max(maxX, s.x+r);
-    minY=Math.min(minY, s.y-r); maxY=Math.max(maxY, s.y+r);
-  });
-  return { x:minX-m, y:minY-m, w:(maxX-minX)+2*m, h:(maxY-minY)+2*m };
+  // 视野只由固定房间外框决定，不能随传感器移动实时改变；
+  // 否则拖动过程中 SVG 坐标比例变化，会产生传感器突然加速/跳动的错觉。
+  const m=Math.max(0.6,Math.min(L,W)*0.08);
+  return {x:-m,y:-m,w:L+2*m,h:W+2*m};
 }
 function applyTopViewBox(){
   const fit = computeTopFit();
@@ -823,8 +822,7 @@ function renderTop(){
   sensors.forEach(se=>{
     const sel = se.id===state.selected;
     s+=`<circle data-sensor-id="${se.id}" cx="${se.x}" cy="${se.y}" r="${sel?0.28:0.18}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.02" style="cursor:pointer"/>`;
-    s+=`<text x="${se.x}" y="${se.y-0.38}" font-size="0.22" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
-    s+=`<text x="${se.x}" y="${se.y-0.6}" font-size="0.15" fill="#6b7682" text-anchor="middle">(${se.x.toFixed(1)}, ${se.y.toFixed(1)})</text>`;
+    s+=`<text x="${se.x}" y="${se.y-0.38}" font-size="0.22" fill="#c9d1d9" text-anchor="middle">${escText(sensorName(se))}</text>`;
   });
   // 人物：顶视图以单个点表示位置
   persons.forEach(p=>{
@@ -833,7 +831,7 @@ function renderTop(){
     const sel = p.id===state.selectedPerson;
     s+=`<g data-person-id="${p.id}" style="cursor:pointer">
       <circle cx="${p.x}" cy="${p.y}" r="${sel?0.18:0.13}" fill="${col}" stroke="#fff" stroke-width="0.02"/>
-      <text x="${p.x}" y="${p.y+0.38}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>
+      <text x="${p.x}" y="${p.y+0.38}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">${escText(personName(p))}</text>
     </g>`;
   });
   // 选中实体到四个方向最近墙面的标注（青色虚线 + 端点 + 距离文字）
@@ -895,7 +893,7 @@ window.addEventListener('mousemove', e=>{
     const vbw = parseFloat(topSvg.getAttribute('viewBox').split(' ')[2]);
     const scale = vbw / topSvg.clientWidth;
     topView.panX = drag.panX - dx*scale;
-    topView.panY = drag.panY + dy*scale;
+    topView.panY = drag.panY - dy*scale;
     if(Math.abs(dx)+Math.abs(dy)>3) drag.moved=true;
     applyTopViewBox();
   }
@@ -937,12 +935,14 @@ function attachCtx(svg, horiz){
     const items=[];
     if(se){
       const id=+se.dataset.sensorId;
-      items.push({label:'选中传感器 S'+id, action:()=>{ state.selected=id; state.selectedPerson=null; renderAll(); }});
-      items.push({label:'删除传感器 S'+id, danger:true, action:()=>{ sensors=sensors.filter(s=>s.id!==id); if(state.selected===id) state.selected=null; renderAll(); }});
+      const obj=getSensor(id), name=sensorName(obj);
+      items.push({label:'选中 '+name, action:()=>{ state.selected=id; state.selectedPerson=null; renderAll(); }});
+      items.push({label:'删除 '+name, danger:true, action:()=>{ sensors=sensors.filter(s=>s.id!==id); if(state.selected===id) state.selected=null; renderAll(); }});
     } else if(pe){
       const id=+pe.dataset.personId;
-      items.push({label:'选人 人'+id, action:()=>{ state.selectedPerson=id; state.selected=null; renderAll(); }});
-      items.push({label:'删除人物 人'+id, danger:true, action:()=>{ persons=persons.filter(p=>p.id!==id); if(state.selectedPerson===id) state.selectedPerson=null; renderAll(); }});
+      const obj=getPerson(id), name=personName(obj);
+      items.push({label:'选中 '+name, action:()=>{ state.selectedPerson=id; state.selected=null; renderAll(); }});
+      items.push({label:'删除 '+name, danger:true, action:()=>{ persons=persons.filter(p=>p.id!==id); if(state.selectedPerson===id) state.selectedPerson=null; renderAll(); }});
     } else {
       let x, y;
       if(horiz==='top'){ const pt=toMeter(e); x=clamp(pt.x,0,L); y=clamp(pt.y,0,W); }
@@ -959,19 +959,21 @@ attachCtx(document.getElementById('frontSvg'),'x');
 attachCtx(document.getElementById('sideSvg'),'y');
 topSvg.addEventListener('wheel', e=>{
   e.preventDefault();
-  const f = e.deltaY>0 ? 1.1 : 0.9;
+  const f = e.deltaY>0 ? 0.9 : 1.1;
   topView.zoom = clamp(topView.zoom*f, 0.2, 8);
   applyTopViewBox();
 }, {passive:false});
 
 function addSensorAt(x,y){
   x=clamp(x,0,L); y=clamp(y,0,W);
-  const s={ id:uid++, x, y, mountH:2.8, motion:true, presence:true };
+  const id=uid++;
+  const s={ id, name:`传感器${id}`, x, y, mountH:2.8, motion:true, presence:true };
   sensors.push(s); state.selected=s.id; state.selectedPerson=null; renderAll();
 }
 function addPersonAt(x,y){
   x=clamp(x,0,L); y=clamp(y,0,W);
-  const p={ id:uidP++, x, y, height:1.7, heading:0 };
+  const id=uidP++;
+  const p={ id, name:`人物${id}`, x, y, height:1.7, heading:0 };
   persons.push(p); state.selectedPerson=p.id; state.selected=null; renderAll();
 }
 
@@ -1012,7 +1014,7 @@ function renderElevation(svg, horiz){
     }
     const sel = se.id===state.selected;
     s+=`<circle data-sensor-id="${se.id}" cx="${c}" cy="${apexY}" r="${sel?0.18:0.12}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.015" style="cursor:pointer"/>`;
-    s+=`<text x="${c}" y="${apexY-0.3}" font-size="0.2" fill="#c9d1d9" text-anchor="middle">S${se.id}</text>`;
+    s+=`<text x="${c}" y="${apexY-0.3}" font-size="0.2" fill="#c9d1d9" text-anchor="middle">${escText(sensorName(se))}</text>`;
   });
   // 人物（前/侧视图：正常人体结构比例模型 + 扫描覆盖段）
   persons.forEach(p=>{
@@ -1037,7 +1039,7 @@ function renderElevation(svg, horiz){
     // 从地面起的运动/存在扫描覆盖段
     if(sc.mH>0){ const my=H-Math.min(h,sc.mH); s+=`<rect x="${c-sw/2}" y="${my}" width="${sw}" height="${(H-my).toFixed(3)}" fill="rgba(46,160,67,0.30)"/>`; }
     if(state.showPresence && sc.pH>0){ const py=H-Math.min(h,sc.pH); s+=`<line x1="${c-sw/2-0.015}" y1="${py}" x2="${c+sw/2+0.015}" y2="${py}" stroke="#ffae3b" stroke-width="0.02"/>`; }
-    s+=`<text x="${c}" y="${headTopY-0.12}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">人${p.id}</text>`;
+    s+=`<text x="${c}" y="${headTopY-0.12}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">${escText(personName(p))}</text>`;
     s+=`</g>`;
   });
   svg.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
@@ -1533,13 +1535,13 @@ function updateLabelPositions(){
     const {rm,rp}=radii(s);
     const am = rm>0 ? (2*Math.atan2(rm, s.mountH)*180/Math.PI).toFixed(0) : 0;
     const ap = rp>0 ? (2*Math.atan2(rp, s.mountH)*180/Math.PI).toFixed(0) : 0;
-    d.innerHTML=`S${id}  (${s.x.toFixed(1)}, ${s.mountH.toFixed(1)}, ${s.y.toFixed(1)})<br>`+
+    d.innerHTML=`${escText(sensorName(s))}  (${s.x.toFixed(1)}, ${s.mountH.toFixed(1)}, ${s.y.toFixed(1)})<br>`+
       `<span style="opacity:.75;font-size:10px">张角 运动${am}° / 存在${ap}°</span>`;
     place(d, s.x, s.mountH, s.y);
   });
   personLabelDivs.forEach((d,id)=>{
     const p=persons.find(x=>x.id===id); if(!p) return;
-    d.textContent=`人${id}  (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`;
+    d.textContent=`${personName(p)}  (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`;
     place(d, p.x, p.height+0.25, p.y);
   });
 }
@@ -1669,26 +1671,26 @@ function renderList(){
     const {rm,rp}=radii(s);
     const wd=nearestWallDistances(s.x,s.y);
     return `<div class="sensor-item ${sel?'sel':''}" data-list-id="${s.id}">
-      <div class="top"><b>S${s.id}</b>
+      <div class="top"><b>${escText(sensorName(s))}</b>
         <button class="danger" data-del="${s.id}" style="padding:2px 8px">删</button></div>
-      <label class="chk"><input type="checkbox" data-m="${s.id}" ${s.motion?'checked':''}> 运动</label>
-      <label class="chk"><input type="checkbox" data-p="${s.id}" ${s.presence?'checked':''}> 存在</label>
-      <div class="row" style="margin-top:4px;gap:6px">
-        <span class="muted" style="width:auto">X</span><input type="number" step="0.1" value="${s.x.toFixed(2)}" data-sx="${s.id}" style="width:58px">
-        <span class="muted" style="width:auto">Z(宽)</span><input type="number" step="0.1" value="${s.y.toFixed(2)}" data-sz="${s.id}" style="width:58px">
+      <label>名称</label>
+      <input type="text" value="${escText(sensorName(s))}" data-sname="${s.id}" maxlength="24" style="width:100%">
+      <div class="row" style="margin-top:5px">
+        <label class="chk" style="flex:1;margin:0"><input type="checkbox" data-m="${s.id}" ${s.motion?'checked':''}> 运动</label>
+        <label class="chk" style="flex:1;margin:0"><input type="checkbox" data-p="${s.id}" ${s.presence?'checked':''}> 存在</label>
       </div>
       <div class="row" style="margin-top:4px">
         <span class="muted" style="width:54px">挂高(m)</span>
         <input type="number" min="0.1" step="0.1" value="${s.mountH}" data-h="${s.id}">
       </div>
-      <div class="muted" style="margin-top:4px">最近墙面：上 ${wd.up.toFixed(2)}m · 下 ${wd.down.toFixed(2)}m · 左 ${wd.left.toFixed(2)}m · 右 ${wd.right.toFixed(2)}m</div>
+      <div class="muted" style="margin-top:6px;line-height:1.65">最近墙面<br>上 ${wd.up.toFixed(2)}m · 下 ${wd.down.toFixed(2)}m · 左 ${wd.left.toFixed(2)}m · 右 ${wd.right.toFixed(2)}m</div>
       <div class="muted" style="margin-top:2px">近裁剪 ${state.nearDist.toFixed(2)}m · 远(斜距) 运动 ${Math.hypot(s.mountH,rm).toFixed(2)}m / 存在 ${Math.hypot(s.mountH,rp).toFixed(2)}m</div>
       <div class="muted" style="margin-top:2px">张角 运动 ${(2*Math.atan2(rm,s.mountH)*180/Math.PI).toFixed(0)}° · 存在 ${(2*Math.atan2(rp,s.mountH)*180/Math.PI).toFixed(0)}°</div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-list-id]').forEach(el=>{
     el.addEventListener('click', e=>{
-      if(e.target.dataset.del||e.target.dataset.m||e.target.dataset.p||e.target.dataset.h||e.target.dataset.sx||e.target.dataset.sz) return;
+      if(e.target.dataset.del||e.target.dataset.m||e.target.dataset.p||e.target.dataset.h||e.target.dataset.sname) return;
       state.selected = +el.dataset.listId; state.selectedPerson=null; renderAll();
     });
   });
@@ -1706,11 +1708,9 @@ function renderList(){
   box.querySelectorAll('[data-h]').forEach(i=>i.addEventListener('change', e=>{
     const v=parseFloat(e.target.value); if(v>0){ getSensor(+i.dataset.h).mountH=v; buildRoom(); fitCamera(); renderAll(); }
   }));
-  box.querySelectorAll('[data-sx]').forEach(i=>i.addEventListener('change', e=>{
-    const v=parseFloat(e.target.value); if(!isNaN(v)){ getSensor(+i.dataset.sx).x=clamp(v,0,L); renderAll(); }
-  }));
-  box.querySelectorAll('[data-sz]').forEach(i=>i.addEventListener('change', e=>{
-    const v=parseFloat(e.target.value); if(!isNaN(v)){ getSensor(+i.dataset.sz).y=clamp(v,0,W); renderAll(); }
+  box.querySelectorAll('[data-sname]').forEach(i=>i.addEventListener('change', e=>{
+    const obj=getSensor(+i.dataset.sname); if(!obj) return;
+    obj.name=e.target.value.trim()||`传感器${obj.id}`; renderAll();
   }));
 }
 function renderPersonList(){
@@ -1720,27 +1720,27 @@ function renderPersonList(){
   box.innerHTML = persons.map(p=>{
     const sc=scanHeights(p.x,p.y);
     const sel = p.id===state.selectedPerson;
+    const wd=nearestWallDistances(p.x,p.y);
     const status = sc.mH<=0 ? '<span style="color:#ff6b6b">未被任何传感器扫描</span>'
       : (sc.mH>=p.height ? `<span style="color:#2ea043">运动全覆盖 (扫描到 ${sc.mH.toFixed(2)}m)</span>`
       : `<span style="color:#ffae3b">运动扫描到 ${sc.mH.toFixed(2)}m / 身高 ${p.height.toFixed(2)}m</span>`);
     const pStatus = (state.showPresence && sc.pH>0) ? ` · 存在扫描到 ${sc.pH.toFixed(2)}m` : '';
     return `<div class="sensor-item ${sel?'sel':''}" data-plist-id="${p.id}">
-      <div class="top"><b>人${p.id}</b>
+      <div class="top"><b>${escText(personName(p))}</b>
         <button class="danger" data-pdel="${p.id}" style="padding:2px 8px">删</button></div>
-      <div class="row" style="margin-top:4px;gap:6px">
-        <span class="muted" style="width:auto">X</span><input type="number" step="0.1" value="${p.x.toFixed(2)}" data-px="${p.id}" style="width:58px">
-        <span class="muted" style="width:auto">Y(宽)</span><input type="number" step="0.1" value="${p.y.toFixed(2)}" data-py="${p.id}" style="width:58px">
-      </div>
+      <label>名称</label>
+      <input type="text" value="${escText(personName(p))}" data-pname="${p.id}" maxlength="24" style="width:100%">
       <div class="row" style="margin-top:4px">
         <span class="muted" style="width:54px">身高(m)</span>
         <input type="number" min="0.5" step="0.05" value="${p.height}" data-ph="${p.id}">
       </div>
-      <div style="margin-top:4px;font-size:11px">${status}${pStatus}</div>
+      <div class="muted" style="margin-top:6px;line-height:1.65">最近墙面<br>上 ${wd.up.toFixed(2)}m · 下 ${wd.down.toFixed(2)}m · 左 ${wd.left.toFixed(2)}m · 右 ${wd.right.toFixed(2)}m</div>
+      <div style="margin-top:5px;font-size:11px">${status}${pStatus}</div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-plist-id]').forEach(el=>{
     el.addEventListener('click', e=>{
-      if(e.target.dataset.pdel||e.target.dataset.ph||e.target.dataset.px||e.target.dataset.py) return;
+      if(e.target.dataset.pdel||e.target.dataset.ph||e.target.dataset.pname) return;
       state.selectedPerson=+el.dataset.plistId; state.selected=null; renderAll();
     });
   });
@@ -1752,11 +1752,9 @@ function renderPersonList(){
   box.querySelectorAll('[data-ph]').forEach(i=>i.addEventListener('change', e=>{
     const v=parseFloat(e.target.value); if(v>0.3){ getPerson(+i.dataset.ph).height=v; renderAll(); }
   }));
-  box.querySelectorAll('[data-px]').forEach(i=>i.addEventListener('change', e=>{
-    const v=parseFloat(e.target.value); if(!isNaN(v)){ getPerson(+i.dataset.px).x=clamp(v,0,L); renderAll(); }
-  }));
-  box.querySelectorAll('[data-py]').forEach(i=>i.addEventListener('change', e=>{
-    const v=parseFloat(e.target.value); if(!isNaN(v)){ getPerson(+i.dataset.py).y=clamp(v,0,W); renderAll(); }
+  box.querySelectorAll('[data-pname]').forEach(i=>i.addEventListener('change', e=>{
+    const obj=getPerson(+i.dataset.pname); if(!obj) return;
+    obj.name=e.target.value.trim()||`人物${obj.id}`; renderAll();
   }));
 }
 
@@ -1801,8 +1799,8 @@ document.getElementById('btnSave').addEventListener('click', ()=>{
   const data = {
     L,W,H,
     view3d:{nearDist:state.nearDist},
-    sensors: sensors.map(s=>({id:s.id,x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence})),
-    persons: persons.map(p=>({id:p.id,x:+p.x.toFixed(3),y:+p.y.toFixed(3),height:p.height,heading:p.heading||0})),
+    sensors: sensors.map(s=>({id:s.id,name:sensorName(s),x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence})),
+    persons: persons.map(p=>({id:p.id,name:personName(p),x:+p.x.toFixed(3),y:+p.y.toFixed(3),height:p.height,heading:p.heading||0})),
     floorplan: svgData ? { format:svgData.format||'SVG', scale:svgData.scale, thickness:svgData.thickness, wallHeight:svgData.wallHeight, fileName:svgData.fileName,
                            minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY, raw:svgData.raw, walls:svgData.walls } : null,
     svg: svgData ? { format:svgData.format||'SVG', scale:svgData.scale, thickness:svgData.thickness, wallHeight:svgData.wallHeight, fileName:svgData.fileName,
@@ -1823,9 +1821,9 @@ document.getElementById('fileInput').addEventListener('change', e=>{
       document.getElementById('inL').value=L; document.getElementById('inW').value=W; document.getElementById('inH').value=H;
       state.nearDist=Math.max(0, Number(d.view3d?.nearDist ?? state.nearDist));
       document.getElementById('inNear').value=state.nearDist;
-      sensors=(d.sensors||[]).map(s=>({id:s.id, x:s.x, y:s.y, mountH:s.mountH??2.8, motion:s.motion!==false, presence:s.presence!==false}));
+      sensors=(d.sensors||[]).map(s=>({id:s.id, name:String(s.name||`传感器${s.id}`), x:s.x, y:s.y, mountH:s.mountH??2.8, motion:s.motion!==false, presence:s.presence!==false}));
       uid = sensors.reduce((m,s)=>Math.max(m,s.id),0)+1;
-      persons=(d.persons||[]).map(p=>({id:p.id, x:p.x, y:p.y, height:p.height||1.7, heading:p.heading||0}));
+      persons=(d.persons||[]).map(p=>({id:p.id, name:String(p.name||`人物${p.id}`), x:p.x, y:p.y, height:p.height||1.7, heading:p.heading||0}));
       uidP = persons.reduce((m,p)=>Math.max(m,p.id),0)+1;
       svgData = d.floorplan || d.svg || null;
       if(svgData){
