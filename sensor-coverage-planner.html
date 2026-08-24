@@ -76,6 +76,11 @@
   .tag{font-size:10px;padding:4px 8px;border-radius:999px;background:#111a24;border:1px solid var(--border);color:#aeb9c7;}
   .kbd{font-family:ui-monospace,Consolas,monospace;background:#0b121a;border:1px solid #35465a;border-radius:5px;padding:1px 5px;color:#8bc4ff;box-shadow:inset 0 -1px 0 rgba(255,255,255,.06);}
   .cadstatus{font-size:11px;color:var(--muted);line-height:1.55;word-break:break-all;background:rgba(7,12,18,.45);border:1px solid rgba(42,56,70,.62);border-radius:7px;padding:7px 8px;}
+  .import-progress{display:none;margin-top:9px;padding:9px;border:1px solid rgba(84,168,255,.28);border-radius:8px;background:rgba(32,139,250,.07);}
+  .import-progress.active{display:block;}
+  .import-progress-track{height:6px;margin-top:7px;border-radius:999px;overflow:hidden;background:#091019;}
+  .import-progress-bar{width:18%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#54a8ff,#4fd1d9);animation:importPulse 1.15s ease-in-out infinite alternate;}
+  @keyframes importPulse{from{transform:translateX(-20%);opacity:.65}to{transform:translateX(455%);opacity:1}}
   .cadprev{margin-top:8px;}
   body.modal-open{overflow:hidden;}
   .modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(1,4,8,.78);display:none;align-items:center;justify-content:center;padding:3vh 3vw;backdrop-filter:blur(7px);}
@@ -159,7 +164,7 @@
       <button id="btnFloorModal" style="width:100%">打开户型导入工作区</button>
       <div class="cadstatus" id="svgStatusSummary" style="margin-top:7px">未导入户型</div>
       <label class="chk"><input type="checkbox" id="ckWalls" checked> 显示墙体 (各视图 + 3D)</label>
-      <div class="muted" style="font-size:11px;line-height:1.5">支持 SVG、DXF 与 DWG。DXF 可离线解析；DWG 需联网按需加载 LibreDWG 转换模块，再统一进行预览、比例尺校准和墙体生成。</div>
+      <div class="muted" style="font-size:11px;line-height:1.5">支持 SVG、DXF 与 DWG。DXF/DWG 的重计算在后台 Worker 中执行，避免页面假死；DWG 首次使用仍需联网加载 LibreDWG，可随时取消。</div>
     </div>
 
     <div class="card">
@@ -259,6 +264,11 @@
         <div class="floor-settings-section">
           <h3>导入状态</h3>
           <div class="cadstatus" id="svgStatus">未导入</div>
+          <div class="import-progress" id="floorImportProgress" aria-live="polite">
+            <div class="muted" id="floorImportStage">准备导入…</div>
+            <div class="import-progress-track"><div class="import-progress-bar"></div></div>
+            <button class="danger" id="btnFloorImportCancel" style="width:100%;margin-top:9px">取消当前导入</button>
+          </div>
         </div>
         <div class="floor-settings-section">
           <h3>比例尺</h3>
@@ -292,7 +302,7 @@
       </aside>
     </div>
     <div class="floor-modal-foot">
-      <span class="muted" style="font-size:11px">SVG：闭合实心图形 · DXF：LINE / POLYLINE / ARC / CIRCLE · DWG：LibreDWG 转换（GPL-3.0，需联网）</span>
+      <span class="muted" style="font-size:11px">SVG：闭合实心图形 · DXF：后台解析 · DWG：Worker 中运行 LibreDWG（GPL-3.0，需联网，可取消）</span>
       <div class="btns">
         <button class="danger" id="btnSvgClear">清除户型</button>
         <button class="ghost" id="btnFloorCancel">取消/关闭</button>
@@ -543,10 +553,117 @@ function parseDXF(text){
   return {segments:segs,minX,minY,maxX,maxY};
 }
 
-async function convertDwgToDxf(buffer){
-  const mod=await import('https://cdn.jsdelivr.net/npm/@cadview/dwg/+esm');
-  if(!mod.convertDwgToDxf) throw new Error('DWG 转换模块未提供 convertDwgToDxf');
-  return await mod.convertDwgToDxf(buffer,{timeout:60000});
+const DWG_MODULE_URL='https://cdn.jsdelivr.net/npm/@cadview/dwg/+esm';
+const MAX_DWG_BYTES=30*1024*1024;
+const WARN_DWG_BYTES=12*1024*1024;
+const MAX_IMPORT_SEGMENTS=2500;
+const MAX_PREVIEW_SEGMENTS=2000;
+let floorImportJob=null;
+
+function setFloorImportBusy(active,stage){
+  const panel=document.getElementById('floorImportProgress');
+  const stageEl=document.getElementById('floorImportStage');
+  const upload=document.getElementById('btnSvgUpload');
+  const apply=document.getElementById('btnSvgApply');
+  if(panel) panel.classList.toggle('active',!!active);
+  if(stageEl && stage) stageEl.textContent=stage;
+  if(upload) upload.disabled=!!active;
+  if(apply) apply.disabled=!!active;
+}
+
+function cancelFloorImport(message='已取消当前导入'){
+  if(!floorImportJob) return;
+  floorImportJob.cancelled=true;
+  if(floorImportJob.timer) clearTimeout(floorImportJob.timer);
+  if(floorImportJob.worker) floorImportJob.worker.terminate();
+  if(floorImportJob.reject) floorImportJob.reject(new DOMException(message,'AbortError'));
+  floorImportJob=null;
+  setFloorImportBusy(false);
+  svgStatus(message);
+}
+
+function createCadWorkerSource(){
+  const parser=parseDXF.toString();
+  return `
+    "use strict";
+    const parseDXF=${parser};
+    const MAX_IMPORT_SEGMENTS=${MAX_IMPORT_SEGMENTS};
+    const DWG_MODULE_URL=${JSON.stringify(DWG_MODULE_URL)};
+    self.onmessage=async event=>{
+      const {kind,payload}=event.data||{};
+      try{
+        let text='';
+        if(kind==='dxf'){
+          self.postMessage({type:'stage',message:'正在后台解析 DXF…'});
+          text=payload;
+        }else if(kind==='dwg'){
+          self.postMessage({type:'stage',message:'正在加载 LibreDWG WASM…'});
+          const mod=await import(DWG_MODULE_URL);
+          if(!mod.convertDwgToDxf) throw new Error('DWG 转换模块未提供 convertDwgToDxf');
+          self.postMessage({type:'stage',message:'正在后台转换 DWG 为 DXF…'});
+          text=await mod.convertDwgToDxf(payload,{timeout:90000});
+          self.postMessage({type:'stage',message:'DWG 已转换，正在解析墙体线段…'});
+        }else{
+          throw new Error('未知 CAD 导入类型');
+        }
+        const result=parseDXF(text);
+        if(result.segments.length>MAX_IMPORT_SEGMENTS){
+          throw new Error('解析得到 '+result.segments.length+' 段线，超过安全上限 '+MAX_IMPORT_SEGMENTS+'；请先在 CAD 中清理标注、填充和细碎图元后另存为 DXF');
+        }
+        self.postMessage({type:'done',result});
+      }catch(err){
+        self.postMessage({type:'error',message:String(err&&err.message||err)});
+      }
+    };
+  `;
+}
+
+function runCadWorker(kind,payload,timeoutMs){
+  return new Promise((resolve,reject)=>{
+    let worker;
+    try{
+      const url=URL.createObjectURL(new Blob([createCadWorkerSource()],{type:'text/javascript'}));
+      worker=new Worker(url,{type:'module'});
+      setTimeout(()=>URL.revokeObjectURL(url),0);
+    }catch(err){
+      reject(new Error('浏览器无法启动后台解析 Worker：'+(err&&err.message||err)));
+      return;
+    }
+    const job={worker,reject,cancelled:false,timer:null};
+    floorImportJob=job;
+    job.timer=setTimeout(()=>{
+      if(floorImportJob!==job) return;
+      worker.terminate();
+      floorImportJob=null;
+      setFloorImportBusy(false);
+      reject(new Error(`导入超过 ${Math.round(timeoutMs/1000)} 秒，已自动终止；建议先精简图纸或另存为 DXF`));
+    },timeoutMs);
+    worker.onmessage=event=>{
+      if(floorImportJob!==job) return;
+      const data=event.data||{};
+      if(data.type==='stage'){
+        setFloorImportBusy(true,data.message);
+        svgStatus(data.message);
+        return;
+      }
+      clearTimeout(job.timer);
+      worker.terminate();
+      floorImportJob=null;
+      setFloorImportBusy(false);
+      if(data.type==='done') resolve(data.result);
+      else reject(new Error(data.message||'后台解析失败'));
+    };
+    worker.onerror=event=>{
+      if(floorImportJob!==job) return;
+      clearTimeout(job.timer);
+      worker.terminate();
+      floorImportJob=null;
+      setFloorImportBusy(false);
+      reject(new Error(event.message||'后台 Worker 运行失败'));
+    };
+    const transfer=payload instanceof ArrayBuffer?[payload]:[];
+    worker.postMessage({kind,payload},transfer);
+  });
 }
 
 function parseSVG(text){
@@ -603,13 +720,26 @@ function parseSVG(text){
 async function handleFloorFile(file){
   if(!file) return;
   const ext=(file.name.split('.').pop()||'').toLowerCase();
-  svgStatus(ext==='dwg'?'正在加载 DWG 转换模块并解析，首次使用可能需要较长时间…':'解析中…');
+  if(floorImportJob) cancelFloorImport('已取消上一项导入，开始处理新文件');
+  if(ext==='dwg' && file.size>MAX_DWG_BYTES){
+    svgStatus(`导入失败：DWG 文件 ${(file.size/1048576).toFixed(1)}MB，超过前端安全上限 ${Math.round(MAX_DWG_BYTES/1048576)}MB；请先清理图纸或转为 DXF`);
+    return;
+  }
+  if(ext==='dwg' && file.size>WARN_DWG_BYTES){
+    const ok=confirm(`该 DWG 为 ${(file.size/1048576).toFixed(1)}MB，转换可能较慢。现已改为后台处理，页面不会假死，但建议先精简图纸。是否继续？`);
+    if(!ok){ svgStatus('已取消导入大尺寸 DWG'); return; }
+  }
+  svgStatus(ext==='dwg'?'准备在后台加载 DWG 转换模块…':ext==='dxf'?'准备在后台解析 DXF…':'解析 SVG…');
   try{
     let res, format=ext.toUpperCase();
     if(ext==='svg') res=parseSVG(await file.text());
-    else if(ext==='dxf') res=parseDXF(await file.text());
-    else if(ext==='dwg') res=parseDXF(await convertDwgToDxf(await file.arrayBuffer()));
-    else throw new Error('仅支持 SVG、DXF、DWG 文件');
+    else if(ext==='dxf'){
+      setFloorImportBusy(true,'正在读取 DXF 文件…');
+      res=await runCadWorker('dxf',await file.text(),60000);
+    }else if(ext==='dwg'){
+      setFloorImportBusy(true,'正在读取 DWG 文件…');
+      res=await runCadWorker('dwg',await file.arrayBuffer(),120000);
+    }else throw new Error('仅支持 SVG、DXF、DWG 文件');
     if(!res.segments.length){ svgStatus(`${format} 中未解析到可用墙体线段`); showSvgPreview(res); return; }
     const maxDim=Math.max(res.maxX-res.minX, res.maxY-res.minY);
     const guess=maxDim>500?0.001:1;
@@ -619,12 +749,15 @@ async function handleFloorFile(file){
     document.getElementById('svgThick').value=0.2;
     document.getElementById('svgWallH').value=Math.max(0.1,H).toFixed(1);
     wallHeight=Math.max(0.1,H);
-    svgStatus(`已导入 ${file.name}（${format}）：解析 ${res.segments.length} 段墙体线段，外框约 ${maxDim.toFixed(0)} 图纸单位。请设比例或校准后“生成墙体”。`);
+    const previewNote=res.segments.length>MAX_PREVIEW_SEGMENTS?`；预览已抽样显示 ${MAX_PREVIEW_SEGMENTS} 段以保持流畅`:'';
+    svgStatus(`已导入 ${file.name}（${format}）：解析 ${res.segments.length} 段墙体线段，外框约 ${maxDim.toFixed(0)} 图纸单位${previewNote}。请设比例或校准后“生成墙体”。`);
     showSvgPreview(res);
     svgCalib.pts=[]; svgCalib.dir='free'; document.getElementById('svgCalibMode').checked=false;
   }catch(err){
+    setFloorImportBusy(false);
+    if(err&&err.name==='AbortError') return;
     console.error(err);
-    const extra=ext==='dwg'?'；请检查网络，或先在 CAD 软件中另存为 DXF 后导入':'';
+    const extra=ext==='dwg'?'；请检查网络，或先在 CAD 软件中清理图层并另存为 DXF 后导入':'';
     svgStatus('导入失败：'+(err&&err.message||err)+extra);
   }
 }
@@ -645,9 +778,17 @@ function drawSvgPreview(geo, crosshair){
   if(!geo) return;
   const w=Math.max(0.01,geo.maxX-geo.minX);
   let html='';
-  (geo.segments||[]).forEach(seg=>{
-    html+=`<line x1="${seg.x1.toFixed(3)}" y1="${seg.y1.toFixed(3)}" x2="${seg.x2.toFixed(3)}" y2="${seg.y2.toFixed(3)}" stroke="#7d8794" stroke-width="${Math.max(0.02,w/400)}" stroke-linecap="round"/>`;
-  });
+  const allSegments=geo.segments||[];
+  const previewStep=Math.max(1,Math.ceil(allSegments.length/MAX_PREVIEW_SEGMENTS));
+  const previewFrag=document.createDocumentFragment();
+  for(let i=0;i<allSegments.length;i+=previewStep){
+    const seg=allSegments[i];
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',seg.x1.toFixed(3)); line.setAttribute('y1',seg.y1.toFixed(3));
+    line.setAttribute('x2',seg.x2.toFixed(3)); line.setAttribute('y2',seg.y2.toFixed(3));
+    line.setAttribute('stroke','#7d8794'); line.setAttribute('stroke-width',Math.max(0.02,w/400));
+    line.setAttribute('stroke-linecap','round'); previewFrag.appendChild(line);
+  }
   // 十字准线（校准模式跟随鼠标，便于精确定位）
   if(crosshair){
     const dw=Math.max(0.04,w/500);
@@ -666,7 +807,8 @@ function drawSvgPreview(geo, crosshair){
   if(svgCalib.pts.length===2){ const [a,b]=svgCalib.pts;
     html+=`<line x1="${a.x.toFixed(3)}" y1="${a.y.toFixed(3)}" x2="${b.x.toFixed(3)}" y2="${b.y.toFixed(3)}" stroke="#39d0d8" stroke-width="${Math.max(0.06,w/250)}"/>`;
   }
-  svgPrev.innerHTML=html;
+  svgPrev.replaceChildren(previewFrag);
+  if(html) svgPrev.insertAdjacentHTML('beforeend',html);
 }
 function updateSvgPreviewCursor(){
   svgPrev.style.cursor = document.getElementById('svgCalibMode').checked ? 'crosshair' : 'grab';
@@ -749,23 +891,46 @@ function applySvg(){
   closeFloorModal();
 }
 
-// 3D 墙体（每段拉伸为 Box）；showWalls 关闭或 3D 未初始化时跳过
+// 3D 墙体（合并后的 BufferGeometry）；showWalls 关闭或 3D 未初始化时跳过
 function buildWalls3D(){
   if(!wallGroup) return;
-  while(wallGroup.children.length){ const c=wallGroup.children[0]; wallGroup.remove(c); if(c.geometry) c.geometry.dispose(); }
+  while(wallGroup.children.length){
+    const c=wallGroup.children[0];
+    wallGroup.remove(c);
+    if(c.geometry) c.geometry.dispose();
+    if(c.material) c.material.dispose();
+  }
   if(!showWalls || !svgData || !svgData.walls || !svgData.walls.length) return;
-  // 使用 Lambert 材质：不同朝向的墙面法线在光照下呈不同亮度，便于分辨墙的朝向
-  const mat=new THREE.MeshLambertMaterial({color:0xbcc4ce});
+  // 所有墙段合并为一个 BufferGeometry + 一份 Lambert 材质，避免数千个 Box Mesh 拖垮主线程和 GPU。
   const wh=Math.max(0.1, wallHeight||H);
+  const halfT=Math.max(0.005,svgData.thickness/2);
+  const pos=[], normals=[], indices=[];
+  const pushQuad=(a,b,c,d,n)=>{
+    const base=pos.length/3;
+    [a,b,c,d].forEach(p=>pos.push(p[0],p[1],p[2]));
+    for(let i=0;i<4;i++) normals.push(n[0],n[1],n[2]);
+    indices.push(base,base+1,base+2,base,base+2,base+3);
+  };
   svgData.walls.forEach(w=>{
-    const dx=w.x2-w.x1, dy=w.y2-w.y1; const len=Math.hypot(dx,dy);
+    const dx=w.x2-w.x1, dz=w.y2-w.y1, len=Math.hypot(dx,dz);
     if(len<1e-4) return;
-    const geo=new THREE.BoxGeometry(len, wh, svgData.thickness);
-    const m=new THREE.Mesh(geo, mat);
-    m.position.set((w.x1+w.x2)/2, wh/2, (w.y1+w.y2)/2);
-    m.rotation.y=-Math.atan2(dy,dx);
-    wallGroup.add(m);
+    const nx=-dz/len*halfT, nz=dx/len*halfT;
+    const p0=[w.x1+nx,0,w.y1+nz], p1=[w.x2+nx,0,w.y2+nz];
+    const p2=[w.x2-nx,0,w.y2-nz], p3=[w.x1-nx,0,w.y1-nz];
+    const t0=[p0[0],wh,p0[2]], t1=[p1[0],wh,p1[2]], t2=[p2[0],wh,p2[2]], t3=[p3[0],wh,p3[2]];
+    pushQuad(p0,p1,t1,t0,[nx/halfT,0,nz/halfT]);
+    pushQuad(p2,p3,t3,t2,[-nx/halfT,0,-nz/halfT]);
+    pushQuad(p1,p2,t2,t1,[dx/len,0,dz/len]);
+    pushQuad(p3,p0,t0,t3,[-dx/len,0,-dz/len]);
+    pushQuad(t0,t1,t2,t3,[0,1,0]);
   });
+  if(!indices.length) return;
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+  geo.setIndex(indices);
+  geo.computeBoundingSphere();
+  wallGroup.add(new THREE.Mesh(geo,new THREE.MeshLambertMaterial({color:0xbcc4ce})));
 }
 
 // ---------- 顶视图 ----------
@@ -1882,6 +2047,7 @@ function closeFloorModal(){
 document.getElementById('btnFloorModal').addEventListener('click', openFloorModal);
 document.getElementById('btnFloorClose').addEventListener('click', closeFloorModal);
 document.getElementById('btnFloorCancel').addEventListener('click', closeFloorModal);
+document.getElementById('btnFloorImportCancel').addEventListener('click', ()=>cancelFloorImport());
 document.getElementById('btnSvgFit').addEventListener('click', fitSvgPreview);
 floorModal.addEventListener('mousedown', e=>{ if(e.target===floorModal) closeFloorModal(); });
 window.addEventListener('keydown', e=>{ if(e.key==='Escape' && floorModal.classList.contains('open')) closeFloorModal(); });
