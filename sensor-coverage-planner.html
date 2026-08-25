@@ -91,7 +91,15 @@
   .floor-modal-head h2{font-size:15px;margin:0;color:var(--text);}
   .floor-modal-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 350px;}
   .floor-preview-pane{min-width:0;min-height:0;padding:16px;display:flex;flex-direction:column;background:#080d13;}
-  .floor-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px;}
+  .floor-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px;flex-wrap:wrap;}
+  .floor-preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .tool-switch{display:inline-flex;align-items:center;gap:7px;margin:0;padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:#111923;color:#b8c3cf;font-size:11px;cursor:pointer;user-select:none;}
+  .tool-switch input{position:absolute;opacity:0;pointer-events:none;}
+  .tool-switch-track{width:31px;height:18px;border-radius:999px;background:#273443;position:relative;transition:.18s ease;box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);}
+  .tool-switch-track::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:#aab5c1;transition:.18s ease;box-shadow:0 2px 5px rgba(0,0,0,.35);}
+  .tool-switch input:checked+.tool-switch-track{background:var(--accent-strong);}
+  .tool-switch input:checked+.tool-switch-track::after{transform:translateX(13px);background:#fff;}
+  .tool-switch input:focus-visible+.tool-switch-track{outline:2px solid rgba(84,168,255,.7);outline-offset:2px;}
   .floor-preview-stage{position:relative;flex:1;min-height:0;border:1px solid #314052;border-radius:11px;overflow:hidden;background:radial-gradient(circle at 50% 45%,#111a24,#090e14 72%);box-shadow:inset 0 0 35px rgba(0,0,0,.3);}
   #svgPreview{position:absolute;inset:0;width:100%;height:100%;background:transparent;cursor:grab;}
   .floor-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--muted);font-size:13px;text-align:center;padding:24px;line-height:1.8;}
@@ -172,7 +180,7 @@
       <h3>图层 (2D + 3D 通用)</h3>
       <label class="chk"><input type="checkbox" id="ckMotion" checked> 运动检测范围</label>
       <label class="chk"><input type="checkbox" id="ckPresence" checked> 存在检测范围</label>
-      <label class="chk"><input type="checkbox" id="ckBlind" checked> 盲区 / 实际覆盖 (地板)</label>
+      <label class="chk"><input type="checkbox" id="ckBlind"> 盲区 / 实际覆盖 (地板)</label>
       <label class="chk"><input type="checkbox" id="ckLabels" checked> 3D 坐标浮层</label>
       <div class="row" style="margin-top:8px">
         <span class="muted" style="width:auto">近裁剪距离(m)</span>
@@ -249,12 +257,21 @@
     <div class="floor-modal-body">
       <div class="floor-preview-pane">
         <div class="floor-preview-toolbar">
-          <div class="btns">
+          <div class="floor-preview-actions">
             <button id="btnSvgUpload">上传 JPG / PNG / SVG</button>
             <button class="ghost" id="btnSvgFit">适应窗口</button>
+            <button class="ghost" id="btnStartCalib">两点校准</button>
+            <label class="tool-switch" title="开启后依次点击墙体起点和终点">
+              <input type="checkbox" id="manualWallMode">
+              <span class="tool-switch-track"></span><span>手动画墙</span>
+            </label>
+            <label class="tool-switch" title="上一段终点自动作为下一段起点">
+              <input type="checkbox" id="manualWallContinue" checked>
+              <span class="tool-switch-track"></span><span>连续绘制</span>
+            </label>
             <input id="svgFile" type="file" accept=".jpg,.jpeg,.png,.svg,image/jpeg,image/png,image/svg+xml" style="display:none">
           </div>
-          <span class="tag" id="floorPreviewHint">滚轮缩放 · 左键拖动平移 · 校准/画墙模式下点击取点</span>
+          <span class="tag" id="floorPreviewHint">滚轮缩放 · 左键拖动平移 · 点选墙体进行编辑</span>
         </div>
         <div class="floor-preview-stage" id="svgPreviewWrap">
           <svg id="svgPreview" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -278,20 +295,17 @@
             <input id="svgScale" type="number" step="0.0001" min="0.000001" value="0.001">
             <span class="muted">米</span>
           </div>
-          <label class="chk" style="margin-top:10px"><input type="checkbox" id="svgCalibMode"> 开启两点校准模式</label>
-          <label>测量方向约束</label>
-          <select id="svgCalibDir" style="width:100%;background:#0d1117;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px">
-            <option value="free">自由方向</option>
-            <option value="h">水平（仅 X）</option>
-            <option value="v">垂直（仅 Y）</option>
-          </select>
-          <label>两点实际距离（米）</label>
-          <input id="svgDist" type="number" step="0.1" min="0.01" placeholder="先在预览中点选两个参考点">
-          <div class="btns" style="margin-top:8px">
-            <button id="btnSvgCalib">应用两点校准</button>
-            <button class="ghost" id="btnSvgCalibReset">重新选点</button>
+          <input type="checkbox" id="svgCalibMode" style="display:none">
+          <div class="cadstatus" id="svgCalibStatus">点击预览区上方“两点校准”，然后在图上依次点选两个参考点。</div>
+          <div id="svgCalibConfirm" style="display:none;margin-top:9px">
+            <label>两点实际距离（米）</label>
+            <input id="svgDist" type="number" step="0.1" min="0.01" placeholder="输入两点对应的实际距离">
+            <div class="btns" style="margin-top:8px">
+              <button id="btnSvgCalib">确认并应用校准</button>
+              <button class="ghost" id="btnSvgCalibReset">重新选点</button>
+            </div>
           </div>
-          <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">开启校准后光标变为十字准星。依次点选两个已知距离的参考点，输入真实距离后应用。</div>
+          <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">校准流程：点击按钮 → 放大并精确点选两点 → 输入实际距离 → 确认应用。点位锚点会随预览缩放同步缩小，方便精确定位。</div>
         </div>
         <div class="floor-settings-section">
           <h3>图片墙面分析</h3>
@@ -309,30 +323,32 @@
           <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">适合黑色或深色墙线、浅色背景的平面图。门窗、文字和家具可能产生误识别，可提高最小墙段或降低黑度阈值过滤。</div>
         </div>
         <div class="floor-settings-section">
-          <h3>手动画墙体</h3>
-          <label class="chk"><input type="checkbox" id="manualWallMode"> 开启手动画墙模式</label>
-          <label>绘制方向约束</label>
+          <h3>墙体绘制与编辑</h3>
+          <label>绘制 / 端点拖动方向约束</label>
           <select id="manualWallDir" style="width:100%;background:#0d1117;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px">
             <option value="auto">自动吸附水平/垂直</option>
             <option value="free">自由角度</option>
             <option value="h">仅水平</option>
             <option value="v">仅垂直</option>
           </select>
-          <label class="chk"><input type="checkbox" id="manualWallContinue" checked> 连续绘制（上一段终点作为下一段起点）</label>
           <div class="btns" style="margin-top:8px">
             <button class="ghost" id="btnManualUndo">撤销一段</button>
             <button class="ghost" id="btnManualCancel">取消当前线</button>
             <button class="danger" id="btnManualClear">清空手动画墙</button>
           </div>
-          <div class="cadstatus" id="manualWallStatus" style="margin-top:8px">手动画墙 0 段</div>
-          <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">开启后依次点击起点和终点。橙色为手动画墙；右键点击橙色墙段可删除。按 Esc 可取消当前未完成线段。</div>
+          <div class="btns" style="margin-top:8px">
+            <button class="danger" id="btnWallDelete" disabled>删除选中墙体</button>
+          </div>
+          <div class="cadstatus" id="manualWallStatus" style="margin-top:8px">手动画墙 0 段 · 未选择墙体</div>
+          <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">关闭画墙和校准模式后，可点选任意自动/手动墙体。拖动墙段可整体平移，拖动两端圆点可调整长度和方向；右键或 Delete 键可删除。橙色为手动画墙，青色为自动识别墙。</div>
         </div>
         <div class="floor-settings-section">
           <h3>墙体生成参数</h3>
           <label>墙厚（米）</label>
           <input id="svgThick" type="number" step="0.05" min="0.01" value="0.2">
-          <label>墙高（米）</label>
+          <label>墙高 / 层高（米）</label>
           <input id="svgWallH" type="number" step="0.1" min="0.1" value="3">
+          <div class="muted" style="font-size:11px;margin-top:6px">生成墙体时会同步到主界面“房间尺寸 - 高 H”，并自动应用新的房间层高。</div>
         </div>
       </aside>
     </div>
@@ -360,7 +376,7 @@ let sensors = [];
 let persons = [];
 let uid = 1, uidP = 1;
 const state = {
-  showMotion:true, showPresence:true, showBlind:true, showLabels:true,
+  showMotion:true, showPresence:true, showBlind:false, showLabels:true,
   nearDist:0.4,                 // 近裁剪距离(米)：传感器近端盲区，锥体由该截面起算
   selected:null, selectedPerson:null
 };
@@ -371,8 +387,10 @@ const topView = { zoom:1, panX:0, panY:0 };
 let svgData = null;
 let showWalls = true;
 let wallHeight = 3;                 // 墙体高度(米)：用于 3D 拉伸与信号遮挡判定
-const svgCalib = { pts:[], dir:'free' };   // 校准用的两点(SVG 用户坐标)与方向约束
+const svgCalib = { pts:[], dir:'auto' };   // 校准用的两点，第二点默认自动吸附水平/垂直
 const manualWall={segments:[],start:null,hover:null};
+const wallEditor={selectedId:null,drag:null};
+let wallUid=1;
 let covCache = null;                // 覆盖率位图缓存 {covUrl,blindUrl,motionPct,presencePct}
 
 function radii(s){
@@ -692,7 +710,8 @@ async function analyzeImageWalls(){
     const minLen=Math.max(8,Math.round(minWall/svgData.scale*ratio));
     const mergeGap=Math.max(2,Math.round(0.35/svgData.scale*ratio));
     const found=await runImageWallWorker(ctx.getImageData(0,0,w,h),{threshold,minLen,direction,mergeGap});
-    svgData.autoWalls=found.map(s=>({x1:s.x1/ratio,y1:s.y1/ratio,x2:s.x2/ratio,y2:s.y2/ratio,source:'auto'}));
+    wallEditor.selectedId=null;
+    svgData.autoWalls=found.map(s=>({id:nextWallId(),x1:s.x1/ratio,y1:s.y1/ratio,x2:s.x2/ratio,y2:s.y2/ratio,source:'auto'}));
     ensureManualWalls(); syncRawWalls();
     if(!svgData.raw.length){ svgStatus('未识别到符合条件的墙面。请提高黑度阈值、降低最小墙段，或开启手动画墙模式补画。'); drawSvgPreview(); return; }
     const b=svgData.wallBounds;
@@ -768,24 +787,27 @@ async function handleFloorFile(file){
       if(!res.segments.length){ svgStatus('SVG 中未解析到闭合实心墙体轮廓'); showSvgPreview(res); return; }
       const maxDim=Math.max(res.maxX-res.minX,res.maxY-res.minY);
       const guess=maxDim>500?0.001:1;
-      svgData={raw:res.segments.map(s=>({...s,source:'auto'})),autoWalls:res.segments.map(s=>({...s,source:'auto'})),manualWalls:[],minX:res.minX,minY:res.minY,maxX:res.maxX,maxY:res.maxY,scale:guess,thickness:0.2,wallHeight:Math.max(0.1,H),walls:[],fileName:file.name,format:'SVG'};
+      const autoWalls=res.segments.map(s=>({...s,id:nextWallId(),source:'auto'}));
+      wallEditor.selectedId=null;
+      svgData={raw:autoWalls.map(s=>({...s})),autoWalls,manualWalls:[],minX:res.minX,minY:res.minY,maxX:res.maxX,maxY:res.maxY,scale:guess,thickness:0.2,wallHeight:Math.max(0.1,H),walls:[],fileName:file.name,format:'SVG'};
       document.getElementById('svgScale').value=guess;
       svgStatus(`已导入 ${file.name}（SVG）：解析 ${res.segments.length} 段轮廓。请确认比例尺或使用两点校准后生成墙体。`);
       showSvgPreview(svgData);
     }else if(['jpg','jpeg','png'].includes(ext) || /^image\/(jpeg|png)$/.test(file.type)){
       svgStatus('正在读取平面图图片…');
       const src=await readFileDataUrl(file),img=await loadImage(src);
+      wallEditor.selectedId=null;
       svgData={raw:[],autoWalls:[],manualWalls:[],minX:0,minY:0,maxX:img.naturalWidth,maxY:img.naturalHeight,scale:1,thickness:0.2,wallHeight:Math.max(0.1,H),walls:[],fileName:file.name,format:'IMAGE',imageSrc:src,imageWidth:img.naturalWidth,imageHeight:img.naturalHeight,imageCalibrated:false,wallBounds:null};
       document.getElementById('svgScale').value='';
-      document.getElementById('svgCalibMode').checked=true;
-      svgStatus(`已载入 ${file.name}（${img.naturalWidth}×${img.naturalHeight}px）。请在图上选择两个已知距离点，输入实际距离并应用校准；随后可自动识别并用手动画墙补充。`);
+      document.getElementById('svgCalibMode').checked=false;
+      svgStatus(`已载入 ${file.name}（${img.naturalWidth}×${img.naturalHeight}px）。请点击预览上方“两点校准”，点选两个已知距离点，输入实际距离并确认；随后可自动识别并用手动画墙补充。`);
       showSvgPreview(svgData);
       updateSvgPreviewCursor();
     }else throw new Error('仅支持 JPG、PNG 或 SVG 文件');
     document.getElementById('svgThick').value=0.2;
-    document.getElementById('svgWallH').value=Math.max(0.1,H).toFixed(1);
-    wallHeight=Math.max(0.1,H);
-    svgCalib.pts=[]; svgCalib.dir='free';
+    document.getElementById('svgWallH').value=Math.max(0.1,H).toFixed(2);
+    wallHeight=Math.max(0.1,H);if(svgData) svgData.wallHeight=wallHeight;
+    svgCalib.pts=[]; svgCalib.dir='auto';updateSvgCalibUi();
   }catch(err){
     setFloorImportBusy(false);
     if(err&&err.name==='AbortError') return;
@@ -797,35 +819,90 @@ const handleSvgFile=handleFloorFile;
 // 户型预览（支持缩放、平移、两点校准和手动画墙）
 const svgPrev = document.getElementById('svgPreview');
 let svgPrevView = {x:0,y:0,w:1,h:1};
+function nextWallId(){ return `wall-${wallUid++}`; }
+function ensureWallIds(list,source){
+  if(!Array.isArray(list)) return [];
+  list.forEach(seg=>{ const m=String(seg.id||'').match(/^wall-(\d+)$/);if(m) wallUid=Math.max(wallUid,Number(m[1])+1); });
+  list.forEach(seg=>{ seg.source=source; if(!seg.id) seg.id=nextWallId(); });
+  return list;
+}
 function ensureManualWalls(){
   if(!svgData) return [];
   if(!Array.isArray(svgData.manualWalls)) svgData.manualWalls=[];
-  manualWall.segments=svgData.manualWalls;
+  manualWall.segments=ensureWallIds(svgData.manualWalls,'manual');
   return manualWall.segments;
+}
+function ensureAllWallIds(){
+  if(!svgData) return;
+  svgData.autoWalls=ensureWallIds(Array.isArray(svgData.autoWalls)?svgData.autoWalls:[],'auto');
+  ensureManualWalls();
+}
+function getWallRef(id){
+  if(!svgData||!id) return null;
+  ensureAllWallIds();
+  for(const source of ['autoWalls','manualWalls']){
+    const list=svgData[source];
+    const index=list.findIndex(seg=>seg.id===id);
+    if(index>=0) return {seg:list[index],list,index,source};
+  }
+  return null;
+}
+function wallLengthMeters(seg){
+  if(!seg) return 0;
+  return Math.hypot(seg.x2-seg.x1,seg.y2-seg.y1)*(svgData?.scale||1);
 }
 function updateManualWallStatus(){
   const count=svgData&&Array.isArray(svgData.manualWalls)?svgData.manualWalls.length:0;
-  const el=document.getElementById('manualWallStatus'); if(el) el.textContent=`手动画墙 ${count} 段${manualWall.start?' · 已选择起点':''}`;
+  const selected=getWallRef(wallEditor.selectedId);
+  if(wallEditor.selectedId&&!selected) wallEditor.selectedId=null;
+  const el=document.getElementById('manualWallStatus');
+  if(el) el.textContent=`手动画墙 ${count} 段${manualWall.start?' · 已选择起点':''}${selected?` · 已选${selected.seg.source==='auto'?'自动':'手动'}墙 ${wallLengthMeters(selected.seg).toFixed(2)}m`:' · 未选择墙体'}`;
+  const del=document.getElementById('btnWallDelete'); if(del) del.disabled=!selected;
   const mode=document.getElementById('manualWallMode')?.checked;
+  const calib=document.getElementById('svgCalibMode')?.checked;
   const hint=document.getElementById('floorPreviewHint');
-  if(hint) hint.textContent=mode?'画墙：点击起点和终点 · 右键橙色墙段删除 · 滚轮缩放':document.getElementById('svgCalibMode')?.checked?'校准：依次点击两个参考点 · 滚轮缩放':'滚轮缩放 · 左键拖动平移';
+  if(hint) hint.textContent=mode?'画墙：点击起点和终点 · 滚轮缩放':calib?'校准：依次点击两个参考点 · 滚轮缩放':'点选墙体 · 拖动墙段平移 · 拖动端点改尺寸 · 右键/Delete 删除';
 }
-function manualWallPoint(pt){
-  if(!manualWall.start) return {x:pt.x,y:pt.y};
+function constrainWallPoint(anchor,pt){
   const dir=document.getElementById('manualWallDir').value;
-  const dx=pt.x-manualWall.start.x,dy=pt.y-manualWall.start.y;
-  if(dir==='h' || (dir==='auto'&&Math.abs(dx)>=Math.abs(dy)*1.35)) return {x:pt.x,y:manualWall.start.y};
-  if(dir==='v' || (dir==='auto'&&Math.abs(dy)>=Math.abs(dx)*1.35)) return {x:manualWall.start.x,y:pt.y};
+  const dx=pt.x-anchor.x,dy=pt.y-anchor.y;
+  if(dir==='h' || (dir==='auto'&&Math.abs(dx)>=Math.abs(dy)*1.35)) return {x:pt.x,y:anchor.y};
+  if(dir==='v' || (dir==='auto'&&Math.abs(dy)>=Math.abs(dx)*1.35)) return {x:anchor.x,y:pt.y};
   return {x:pt.x,y:pt.y};
 }
-function syncRawWalls(){
+function manualWallPoint(pt){
+  return manualWall.start?constrainWallPoint(manualWall.start,pt):{x:pt.x,y:pt.y};
+}
+function syncGeneratedWalls(){
+  if(!svgData||!Array.isArray(svgData.walls)||!svgData.walls.length||!svgData.raw.length) return;
+  const bounds=svgData.wallBounds||svgData;
+  svgData.walls=svgData.raw.map(seg=>({
+    id:seg.id,source:seg.source,
+    x1:(seg.x1-bounds.minX)*svgData.scale,y1:(seg.y1-bounds.minY)*svgData.scale,
+    x2:(seg.x2-bounds.minX)*svgData.scale,y2:(seg.y2-bounds.minY)*svgData.scale
+  }));
+  L=(bounds.maxX-bounds.minX)*svgData.scale; W=(bounds.maxY-bounds.minY)*svgData.scale;
+  document.getElementById('inL').value=L.toFixed(2); document.getElementById('inW').value=W.toFixed(2);
+  sensors.forEach(s=>{s.x=clamp(s.x,0,L);s.y=clamp(s.y,0,W);});
+  persons.forEach(p=>{p.x=clamp(p.x,0,L);p.y=clamp(p.y,0,W);});
+  buildRoom();buildWalls3D();fitCamera();renderAll();
+}
+function syncRawWalls(updateGenerated=false){
   if(!svgData) return;
-  const auto=Array.isArray(svgData.autoWalls)?svgData.autoWalls:[];
-  const manual=ensureManualWalls();
-  svgData.raw=[...auto.map(s=>({...s,source:'auto'})),...manual.map(s=>({...s,source:'manual'}))];
+  ensureAllWallIds();
+  svgData.raw=[...svgData.autoWalls.map(s=>({...s})),...svgData.manualWalls.map(s=>({...s}))];
   const b=imageWallBounds(svgData.raw);
   svgData.wallBounds=b;
+  if(updateGenerated) syncGeneratedWalls();
   updateManualWallStatus();
+}
+function selectWall(id){ wallEditor.selectedId=getWallRef(id)?id:null; updateManualWallStatus(); drawSvgPreview(); }
+function deleteWallById(id){
+  const ref=getWallRef(id); if(!ref) return false;
+  ref.list.splice(ref.index,1); if(wallEditor.selectedId===id) wallEditor.selectedId=null;
+  syncRawWalls(true); drawSvgPreview();
+  svgStatus(`已删除${ref.seg.source==='auto'?'自动识别':'手动绘制'}墙体，当前共 ${svgData.raw.length} 段`);
+  return true;
 }
 function showSvgPreview(geo){
   const empty=document.getElementById('svgPreviewEmpty'); if(empty) empty.style.display='none';
@@ -834,6 +911,26 @@ function showSvgPreview(geo){
   svgPrevView={x:geo.minX-pad,y:geo.minY-pad,w:w+pad*2,h:h+pad*2}; applySvgPrevView(); drawSvgPreview(geo);
 }
 function applySvgPrevView(){ svgPrev.setAttribute('viewBox', `${svgPrevView.x} ${svgPrevView.y} ${svgPrevView.w} ${svgPrevView.h}`); }
+function previewUnitPerPixel(){
+  const rect=svgPrev.getBoundingClientRect();
+  return rect.width>0?svgPrevView.w/rect.width:svgPrevView.w/1000;
+}
+function previewPx(px,min=0.0001){ return Math.max(min,previewUnitPerPixel()*px); }
+function updateSvgCalibUi(){
+  const mode=document.getElementById('svgCalibMode')?.checked;
+  const count=svgCalib.pts.length;
+  const status=document.getElementById('svgCalibStatus');
+  const confirm=document.getElementById('svgCalibConfirm');
+  const start=document.getElementById('btnStartCalib');
+  if(start){ start.textContent=mode?'取消校准':'两点校准';start.classList.toggle('danger',!!mode); }
+  if(confirm) confirm.style.display=count===2?'block':'none';
+  if(status){
+    if(!mode&&count<2) status.textContent='点击预览区上方“两点校准”，然后在图上依次点选两个参考点。';
+    else if(count===0) status.textContent='校准中：请在预览图上点选第 1 个参考点。';
+    else if(count===1) status.textContent='已选择第 1 点，请放大预览并点选第 2 个参考点。';
+    else status.textContent='两个参考点已选择，请输入实际距离并确认应用校准。';
+  }
+}
 function drawSvgPreview(geo, crosshair){
   geo = geo || (svgData? {segments:svgData.raw,minX:svgData.minX,minY:svgData.minY,maxX:svgData.maxX,maxY:svgData.maxY,imageSrc:svgData.imageSrc,format:svgData.format}:null);
   if(!geo) return;
@@ -850,38 +947,57 @@ function drawSvgPreview(geo, crosshair){
   }
   for(let i=0;i<allSegments.length;i+=previewStep){
     const seg=allSegments[i];
+    const selected=seg.id&&seg.id===wallEditor.selectedId;
     const line=document.createElementNS('http://www.w3.org/2000/svg','line');
     line.setAttribute('x1',seg.x1.toFixed(3)); line.setAttribute('y1',seg.y1.toFixed(3));
     line.setAttribute('x2',seg.x2.toFixed(3)); line.setAttribute('y2',seg.y2.toFixed(3));
     const manual=seg.source==='manual';
-    line.setAttribute('stroke',manual?'#ffb454':geo.imageSrc?'#39d0d8':'#7d8794'); line.setAttribute('stroke-width',Math.max(manual?0.8:0.4,w/(manual?300:400)));
-    line.setAttribute('stroke-linecap','round'); line.setAttribute('opacity',geo.imageSrc?'0.95':'1');
-    if(manual){ line.dataset.manualWallIndex=String(i); line.style.cursor='pointer'; }
+    const dragging=selected&&wallEditor.drag;
+    line.setAttribute('stroke',selected?'#ff5c7a':manual?'#ffb454':geo.imageSrc?'#39d0d8':'#7d8794');
+    line.setAttribute('stroke-width',previewPx(selected?4.5:manual?3.2:2.2));
+    line.setAttribute('stroke-linecap','round'); line.setAttribute('opacity',dragging?'0.46':geo.imageSrc?'0.97':'1');
+    if(seg.id){ line.dataset.wallId=seg.id; line.dataset.wallPart='body'; line.style.cursor='move'; line.style.pointerEvents='stroke'; }
     previewFrag.appendChild(line);
+  }
+  const selectedRef=getWallRef(wallEditor.selectedId);
+  if(selectedRef){
+    const seg=selectedRef.seg;
+    const handleR=previewPx(7),handleStroke=previewPx(1.5);
+    for(const [part,x,y] of [['start',seg.x1,seg.y1],['end',seg.x2,seg.y2]]){
+      const handle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      handle.setAttribute('cx',x.toFixed(3));handle.setAttribute('cy',y.toFixed(3));handle.setAttribute('r',handleR.toFixed(3));
+      handle.setAttribute('fill','#ffffff');handle.setAttribute('stroke','#ff5c7a');handle.setAttribute('stroke-width',handleStroke.toFixed(3));
+      handle.dataset.wallId=seg.id;handle.dataset.wallPart=part;handle.style.cursor='crosshair';previewFrag.appendChild(handle);
+    }
+    const mx=(seg.x1+seg.x2)/2,my=(seg.y1+seg.y2)/2;
+    const label=document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x',mx.toFixed(3));label.setAttribute('y',(my-previewPx(13)).toFixed(3));label.setAttribute('text-anchor','middle');
+    label.setAttribute('fill','#ffffff');label.setAttribute('stroke','#111827');label.setAttribute('stroke-width',previewPx(1.2));label.setAttribute('paint-order','stroke');
+    label.setAttribute('font-size',previewPx(12));label.setAttribute('pointer-events','none');label.textContent=`${wallLengthMeters(seg).toFixed(2)}m`;
+    previewFrag.appendChild(label);
   }
   const drawMode=document.getElementById('manualWallMode')?.checked;
   if(drawMode && manualWall.start){
     const q=manualWall.hover?manualWallPoint(manualWall.hover):manualWall.start;
-    html+=`<line x1="${manualWall.start.x.toFixed(3)}" y1="${manualWall.start.y.toFixed(3)}" x2="${q.x.toFixed(3)}" y2="${q.y.toFixed(3)}" stroke="#ffb454" stroke-width="${Math.max(0.8,w/300)}" stroke-dasharray="${w/140}" pointer-events="none"/>`;
-    html+=`<circle cx="${manualWall.start.x.toFixed(3)}" cy="${manualWall.start.y.toFixed(3)}" r="${Math.max(1,w/150)}" fill="#ffb454" stroke="#fff" stroke-width="${Math.max(0.1,w/600)}" pointer-events="none"/>`;
+    html+=`<line x1="${manualWall.start.x.toFixed(3)}" y1="${manualWall.start.y.toFixed(3)}" x2="${q.x.toFixed(3)}" y2="${q.y.toFixed(3)}" stroke="#ffb454" stroke-width="${previewPx(3)}" stroke-dasharray="${previewPx(8)}" opacity="0.62" pointer-events="none"/>`;
+    html+=`<circle cx="${manualWall.start.x.toFixed(3)}" cy="${manualWall.start.y.toFixed(3)}" r="${previewPx(6)}" fill="rgba(255,180,84,.62)" stroke="#fff" stroke-width="${previewPx(1.3)}" pointer-events="none"/>`;
   }
   // 十字准线（校准或画墙模式跟随鼠标，便于精确定位）
   if(crosshair){
-    const dw=Math.max(0.04,w/500);
-    html+=`<line x1="${crosshair.x.toFixed(3)}" y1="${geo.minY.toFixed(3)}" x2="${crosshair.x.toFixed(3)}" y2="${geo.maxY.toFixed(3)}" stroke="#39d0d8" stroke-width="${dw}" opacity="0.45" stroke-dasharray="${w/200}"/>`;
-    html+=`<line x1="${geo.minX.toFixed(3)}" y1="${crosshair.y.toFixed(3)}" x2="${geo.maxX.toFixed(3)}" y2="${crosshair.y.toFixed(3)}" stroke="#39d0d8" stroke-width="${dw}" opacity="0.45" stroke-dasharray="${w/200}"/>`;
+    const dw=previewPx(1),dash=previewPx(6);
+    html+=`<line x1="${crosshair.x.toFixed(3)}" y1="${svgPrevView.y.toFixed(3)}" x2="${crosshair.x.toFixed(3)}" y2="${(svgPrevView.y+svgPrevView.h).toFixed(3)}" stroke="#39d0d8" stroke-width="${dw}" opacity="0.45" stroke-dasharray="${dash}"/>`;
+    html+=`<line x1="${svgPrevView.x.toFixed(3)}" y1="${crosshair.y.toFixed(3)}" x2="${(svgPrevView.x+svgPrevView.w).toFixed(3)}" y2="${crosshair.y.toFixed(3)}" stroke="#39d0d8" stroke-width="${dw}" opacity="0.45" stroke-dasharray="${dash}"/>`;
   }
   // 已选点对之间的橡皮筋线（实时预览测量方向与距离）
   if(svgCalib.pts.length===1 && crosshair){
-    let q={x:crosshair.x,y:crosshair.y};
-    if(svgCalib.dir==='h') q.y=svgCalib.pts[0].y; else if(svgCalib.dir==='v') q.x=svgCalib.pts[0].x;
-    html+=`<line x1="${svgCalib.pts[0].x.toFixed(3)}" y1="${svgCalib.pts[0].y.toFixed(3)}" x2="${q.x.toFixed(3)}" y2="${q.y.toFixed(3)}" stroke="#39d0d8" stroke-width="${Math.max(0.06,w/250)}" stroke-dasharray="${w/120}"/>`;
+    const q=autoSnapCalibPoint(svgCalib.pts[0],crosshair);
+    html+=`<line x1="${svgCalib.pts[0].x.toFixed(3)}" y1="${svgCalib.pts[0].y.toFixed(3)}" x2="${q.x.toFixed(3)}" y2="${q.y.toFixed(3)}" stroke="#39d0d8" stroke-width="${previewPx(2)}" stroke-dasharray="${previewPx(8)}" opacity="0.7"/>`;
   }
-  // 校准点（放大 + 白边，便于点击与辨识）
-  const r=Math.max(0.5,w/100), sw=Math.max(0.06,w/280);
-  svgCalib.pts.forEach(p=>{ html+=`<circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${r.toFixed(3)}" fill="#39d0d8" stroke="#ffffff" stroke-width="${sw.toFixed(3)}"/>`; });
+  // 校准点按当前 viewBox 缩放为固定屏幕像素，放大后可精确对准。
+  const r=previewPx(6),sw=previewPx(1.4);
+  svgCalib.pts.forEach(p=>{ html+=`<circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${r.toFixed(3)}" fill="rgba(57,208,216,.68)" stroke="#ffffff" stroke-width="${sw.toFixed(3)}"/>`; });
   if(svgCalib.pts.length===2){ const [a,b]=svgCalib.pts;
-    html+=`<line x1="${a.x.toFixed(3)}" y1="${a.y.toFixed(3)}" x2="${b.x.toFixed(3)}" y2="${b.y.toFixed(3)}" stroke="#39d0d8" stroke-width="${Math.max(0.06,w/250)}"/>`;
+    html+=`<line x1="${a.x.toFixed(3)}" y1="${a.y.toFixed(3)}" x2="${b.x.toFixed(3)}" y2="${b.y.toFixed(3)}" stroke="#39d0d8" stroke-width="${previewPx(2)}" opacity="0.72"/>`;
   }
   svgPrev.replaceChildren(previewFrag);
   if(html) svgPrev.insertAdjacentHTML('beforeend',html);
@@ -891,18 +1007,52 @@ function updateSvgPreviewCursor(){
   svgPrev.style.cursor=precise?'crosshair':'grab';
   updateManualWallStatus();
 }
+function startWallDrag(e,target){
+  const ref=getWallRef(target.dataset.wallId); if(!ref) return false;
+  const pt=svgPrevPoint(e); if(!pt) return false;
+  wallEditor.selectedId=ref.seg.id;
+  wallEditor.drag={id:ref.seg.id,part:target.dataset.wallPart||'body',start:pt,orig:{x1:ref.seg.x1,y1:ref.seg.y1,x2:ref.seg.x2,y2:ref.seg.y2}};
+  updateManualWallStatus();drawSvgPreview();return true;
+}
+function moveSelectedWall(pt){
+  const drag=wallEditor.drag,ref=getWallRef(drag?.id); if(!drag||!ref||!pt) return;
+  const seg=ref.seg,o=drag.orig;
+  if(drag.part==='body'){
+    const dx=pt.x-drag.start.x,dy=pt.y-drag.start.y;
+    seg.x1=o.x1+dx;seg.y1=o.y1+dy;seg.x2=o.x2+dx;seg.y2=o.y2+dy;
+  }else if(drag.part==='start'){
+    const p=constrainWallPoint({x:o.x2,y:o.y2},pt);seg.x1=p.x;seg.y1=p.y;
+  }else{
+    const p=constrainWallPoint({x:o.x1,y:o.y1},pt);seg.x2=p.x;seg.y2=p.y;
+  }
+  syncRawWalls(false);drawSvgPreview();
+}
+function finishWallDrag(){
+  if(!wallEditor.drag) return;
+  const ref=getWallRef(wallEditor.drag.id);
+  if(ref&&wallLengthMeters(ref.seg)<0.03){ Object.assign(ref.seg,wallEditor.drag.orig); }
+  wallEditor.drag=null;syncRawWalls(true);drawSvgPreview();
+}
+function cancelWallDrag(){
+  if(!wallEditor.drag) return;
+  const ref=getWallRef(wallEditor.drag.id);if(ref) Object.assign(ref.seg,wallEditor.drag.orig);
+  wallEditor.drag=null;syncRawWalls(false);drawSvgPreview();
+}
 function svgPrevPoint(e){
   const pt=svgPrev.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
   const ctm=svgPrev.getScreenCTM(); if(!ctm) return null;
   const p=pt.matrixTransform(ctm.inverse()); return {x:p.x,y:p.y};
 }
+function autoSnapCalibPoint(anchor,pt){
+  const dx=pt.x-anchor.x,dy=pt.y-anchor.y;
+  if(Math.abs(dx)>=Math.abs(dy)) return {x:pt.x,y:anchor.y,dir:'h'};
+  return {x:anchor.x,y:pt.y,dir:'v'};
+}
 function updateSvgCalibDist(){
   if(svgCalib.pts.length!==2) return;
-  const [a,b]=svgCalib.pts; let d;
-  if(svgCalib.dir==='h') d=Math.abs(b.x-a.x); else if(svgCalib.dir==='v') d=Math.abs(b.y-a.y); else d=Math.hypot(b.x-a.x,b.y-a.y);
+  const [a,b]=svgCalib.pts,d=Math.hypot(b.x-a.x,b.y-a.y);
   const inp=document.getElementById('svgDist'); inp.dataset.draw=d.toFixed(4);
-  const dirTxt = svgCalib.dir==='h'?'水平':svgCalib.dir==='v'?'垂直':'自由';
-  inp.placeholder=`两点图纸距离 ${d.toFixed(1)} 单位（${dirTxt}）`;
+  inp.placeholder=`${svgCalib.dir==='h'?'水平':'垂直'}图纸距离 ${d.toFixed(2)} 单位，请输入实际米数`;
 }
 function setupSvgPreview(){
   svgPrev.addEventListener('wheel', e=>{
@@ -911,11 +1061,14 @@ function setupSvgPreview(){
     const f=e.deltaY>0?1.12:0.89;
     svgPrevView.x = pt.x - (pt.x-svgPrevView.x)*f;
     svgPrevView.y = pt.y - (pt.y-svgPrevView.y)*f;
-    svgPrevView.w*=f; svgPrevView.h*=f; applySvgPrevView();
+    svgPrevView.w*=f; svgPrevView.h*=f; applySvgPrevView();drawSvgPreview();
   }, {passive:false});
   let pan=null;
   svgPrev.addEventListener('mousedown', e=>{
     if(e.button!==0) return;
+    const editing=!document.getElementById('manualWallMode').checked&&!document.getElementById('svgCalibMode').checked;
+    const wallTarget=e.target.closest?.('[data-wall-id]');
+    if(editing&&wallTarget){ e.preventDefault();startWallDrag(e,wallTarget);return; }
     if(document.getElementById('manualWallMode').checked){
       if(!svgData){ alert('请先上传平面图或 SVG'); return; }
       const pt=svgPrevPoint(e); if(!pt) return;
@@ -924,7 +1077,7 @@ function setupSvgPreview(){
       else{
         const len=Math.hypot(p.x-manualWall.start.x,p.y-manualWall.start.y);
         if(len>Math.max(0.5,svgPrevView.w/1000)){
-          ensureManualWalls().push({x1:manualWall.start.x,y1:manualWall.start.y,x2:p.x,y2:p.y,source:'manual'});
+          ensureManualWalls().push({id:nextWallId(),x1:manualWall.start.x,y1:manualWall.start.y,x2:p.x,y2:p.y,source:'manual'});
           syncRawWalls();
           manualWall.start=document.getElementById('manualWallContinue').checked?p:null;
           manualWall.hover=p;
@@ -936,21 +1089,24 @@ function setupSvgPreview(){
       const pt=svgPrevPoint(e); if(!pt) return;
       if(svgCalib.pts.length>=2) svgCalib.pts=[];
       let p={x:pt.x,y:pt.y};
-      if(svgCalib.pts.length===1 && svgCalib.dir!=='free'){ const a=svgCalib.pts[0]; if(svgCalib.dir==='h') p.y=a.y; else p.x=a.x; }
-      svgCalib.pts.push(p); drawSvgPreview(); if(svgCalib.pts.length===2) updateSvgCalibDist();
+      if(svgCalib.pts.length===1){const snapped=autoSnapCalibPoint(svgCalib.pts[0],p);p={x:snapped.x,y:snapped.y};svgCalib.dir=snapped.dir;}
+      else svgCalib.dir='auto';
+      svgCalib.pts.push(p); drawSvgPreview(); if(svgCalib.pts.length===2) updateSvgCalibDist();updateSvgCalibUi();
       return;
     }
+    if(wallEditor.selectedId){ wallEditor.selectedId=null;updateManualWallStatus();drawSvgPreview(); }
     pan={sx:e.clientX, sy:e.clientY, vx:svgPrevView.x, vy:svgPrevView.y, w:svgPrevView.w, h:svgPrevView.h};
   });
   window.addEventListener('mousemove', e=>{
+    if(wallEditor.drag){ moveSelectedWall(svgPrevPoint(e));return; }
     if(!pan) return;
     const dx=e.clientX-pan.sx, dy=e.clientY-pan.sy;
     const rect=svgPrev.getBoundingClientRect(); if(!rect.width) return;
     svgPrevView.x=pan.vx - dx*(pan.w/rect.width);
     svgPrevView.y=pan.vy - dy*(pan.h/rect.height);
-    applySvgPrevView();
+    applySvgPrevView();drawSvgPreview();
   });
-  window.addEventListener('mouseup', ()=>{ pan=null; });
+  window.addEventListener('mouseup', ()=>{ if(wallEditor.drag) finishWallDrag();pan=null; });
   // 校准模式下：鼠标移动时显示十字准线与橡皮筋线，便于选点
   svgPrev.addEventListener('mousemove', e=>{
     const calib=document.getElementById('svgCalibMode').checked;
@@ -964,14 +1120,9 @@ function setupSvgPreview(){
     if(document.getElementById('svgCalibMode').checked||document.getElementById('manualWallMode').checked) drawSvgPreview();
   });
   svgPrev.addEventListener('contextmenu',e=>{
-    const line=e.target.closest('[data-manual-wall-index]');
-    if(!line||!svgData) return;
-    e.preventDefault();
-    const rawIndex=Number(line.dataset.manualWallIndex);
-    const seg=(svgData.raw||[])[rawIndex]; if(!seg||seg.source!=='manual') return;
-    const manual=ensureManualWalls();
-    const idx=manual.findIndex(s=>Math.abs(s.x1-seg.x1)<1e-6&&Math.abs(s.y1-seg.y1)<1e-6&&Math.abs(s.x2-seg.x2)<1e-6&&Math.abs(s.y2-seg.y2)<1e-6);
-    if(idx>=0){ manual.splice(idx,1);syncRawWalls();drawSvgPreview();svgStatus(`已删除手动画墙，当前 ${manual.length} 段`); }
+    const target=e.target.closest?.('[data-wall-id]');
+    if(!target||!svgData) return;
+    e.preventDefault();deleteWallById(target.dataset.wallId);
   });
 }
 
@@ -983,18 +1134,21 @@ function applySvg(){
   if(svgData.format==='IMAGE' && svgData.raw.length>600){ alert(`当前共有 ${svgData.raw.length} 段墙面，数量过多，可能包含文字或家具。请提高最小墙段长度、调整阈值，或清理不需要的墙线。`); return; }
   svgData.scale=parseFloat(document.getElementById('svgScale').value)||svgData.scale;
   svgData.thickness=Math.max(0.01, parseFloat(document.getElementById('svgThick').value)||0.2);
-  wallHeight=Math.max(0.1, parseFloat(document.getElementById('svgWallH').value)||H);
-  svgData.wallHeight=wallHeight;
-  const bounds=svgData.format==='IMAGE'&&svgData.wallBounds?svgData.wallBounds:svgData;
+  wallHeight=Math.max(0.1,parseFloat(document.getElementById('svgWallH').value)||H);
+  H=wallHeight;svgData.wallHeight=wallHeight;
+  document.getElementById('svgWallH').value=wallHeight.toFixed(2);
+  document.getElementById('inH').value=H.toFixed(2);
+  const bounds=svgData.wallBounds||svgData;
   const Lc=(bounds.maxX-bounds.minX)*svgData.scale, Wc=(bounds.maxY-bounds.minY)*svgData.scale;
   svgData.walls=svgData.raw.map(seg=>({
+    id:seg.id,source:seg.source,
     x1:(seg.x1-bounds.minX)*svgData.scale, y1:(seg.y1-bounds.minY)*svgData.scale,
     x2:(seg.x2-bounds.minX)*svgData.scale, y2:(seg.y2-bounds.minY)*svgData.scale
   }));
   L=Lc; W=Wc;
   document.getElementById('inL').value=L.toFixed(2);
   document.getElementById('inW').value=W.toFixed(2);
-  sensors.forEach(s=>{ s.x=clamp(s.x,0,L); s.y=clamp(s.y,0,W); });
+  sensors.forEach(s=>{ s.x=clamp(s.x,0,L); s.y=clamp(s.y,0,W); s.mountH=Math.min(s.mountH,H); });
   persons.forEach(p=>{ p.x=clamp(p.x,0,L); p.y=clamp(p.y,0,W); });
   topView.zoom=1; topView.panX=0; topView.panY=0;
   buildRoom(); buildWalls3D(); fitCamera(); renderAll();
@@ -2047,6 +2201,7 @@ document.getElementById('btnApply').addEventListener('click', ()=>{
   L=Math.max(0.1, parseFloat(document.getElementById('inL').value)||L);
   W=Math.max(0.1, parseFloat(document.getElementById('inW').value)||W);
   H=Math.max(0.1, parseFloat(document.getElementById('inH').value)||H);
+  wallHeight=H;if(svgData) svgData.wallHeight=H;document.getElementById('svgWallH').value=H.toFixed(2);
   sensors.forEach(s=>{ s.x=clamp(s.x,0,L); s.y=clamp(s.y,0,W); s.mountH=Math.min(s.mountH,H); });
   persons.forEach(p=>{ p.x=clamp(p.x,0,L); p.y=clamp(p.y,0,W); });
   buildRoom(); if(svgData) buildWalls3D(); fitCamera(); renderAll();
@@ -2105,18 +2260,19 @@ document.getElementById('fileInput').addEventListener('change', e=>{
       uidP = persons.reduce((m,p)=>Math.max(m,p.id),0)+1;
       svgData = d.floorplan || d.svg || null;
       if(svgData){
+        wallEditor.selectedId=null;wallEditor.drag=null;
         svgData.format=svgData.format||'SVG';
         svgData.manualWalls=Array.isArray(svgData.manualWalls)?svgData.manualWalls:[];
         svgData.autoWalls=Array.isArray(svgData.autoWalls)?svgData.autoWalls:(svgData.raw||[]).filter(s=>s.source!=='manual');
-        syncRawWalls();
+        ensureAllWallIds();syncRawWalls();
         document.getElementById('svgScale').value=svgData.scale;
         document.getElementById('svgThick').value=svgData.thickness;
-        document.getElementById('svgWallH').value=svgData.wallHeight;
-        wallHeight=svgData.wallHeight||H;
+        wallHeight=H;svgData.wallHeight=H;document.getElementById('svgWallH').value=H.toFixed(2);
+        svgData.walls=(svgData.walls||[]).map(w=>({...w}));
         svgStatus(`已载入 ${svgData.format||'户型'}：${svgData.fileName||''}，墙体 ${svgData.walls?svgData.walls.length:0} 段${svgData.format==='IMAGE'?'（JSON 不内嵌原 JPG，保留已识别墙线）':''}`);
         showSvgPreview({segments:svgData.raw, minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY});
       }
-      state.selected=null; state.selectedPerson=null; buildRoom(); if(svgData) buildWalls3D(); fitCamera(); renderAll();
+      state.selected=null; state.selectedPerson=null; buildRoom(); if(svgData){syncGeneratedWalls();buildWalls3D();} fitCamera(); renderAll();
     }catch(err){ alert('JSON 解析失败：'+err.message); }
   };
   r.readAsText(f); e.target.value='';
@@ -2155,7 +2311,8 @@ function fitSvgPreview(){
 }
 function openFloorModal(){
   floorModal.classList.add('open'); floorModal.setAttribute('aria-hidden','false'); document.body.classList.add('modal-open');
-  requestAnimationFrame(()=>{ if(svgData){ document.getElementById('svgPreviewEmpty').style.display='none'; drawSvgPreview(); applySvgPrevView(); } updateSvgPreviewCursor(); });
+  document.getElementById('svgWallH').value=(svgData?.wallHeight||H).toFixed(2);
+  requestAnimationFrame(()=>{ if(svgData){ document.getElementById('svgPreviewEmpty').style.display='none'; drawSvgPreview(); applySvgPrevView(); } updateSvgPreviewCursor();updateSvgCalibUi(); });
 }
 function closeFloorModal(){
   floorModal.classList.remove('open'); floorModal.setAttribute('aria-hidden','true'); document.body.classList.remove('modal-open');
@@ -2167,9 +2324,10 @@ document.getElementById('btnFloorImportCancel').addEventListener('click', ()=>ca
 document.getElementById('btnImageAnalyze').addEventListener('click', analyzeImageWalls);
 document.getElementById('imgThreshold').addEventListener('input',e=>{ document.getElementById('imgThresholdValue').textContent=e.target.value; });
 document.getElementById('manualWallMode').addEventListener('change',e=>{
+  wallEditor.selectedId=null;wallEditor.drag=null;
   if(e.target.checked){ document.getElementById('svgCalibMode').checked=false;svgCalib.pts=[];ensureManualWalls(); }
   else{ manualWall.start=null;manualWall.hover=null; }
-  updateSvgPreviewCursor();drawSvgPreview();
+  updateSvgPreviewCursor();updateSvgCalibUi();drawSvgPreview();
 });
 document.getElementById('manualWallDir').addEventListener('change',()=>drawSvgPreview());
 document.getElementById('btnManualUndo').addEventListener('click',()=>{
@@ -2177,53 +2335,60 @@ document.getElementById('btnManualUndo').addEventListener('click',()=>{
 });
 document.getElementById('btnManualCancel').addEventListener('click',()=>{manualWall.start=null;manualWall.hover=null;drawSvgPreview();updateManualWallStatus();});
 document.getElementById('btnManualClear').addEventListener('click',()=>{
-  if(!svgData) return;ensureManualWalls().length=0;manualWall.start=null;manualWall.hover=null;syncRawWalls();drawSvgPreview();svgStatus('已清空全部手动画墙');
+  if(!svgData) return;ensureManualWalls().length=0;manualWall.start=null;manualWall.hover=null;wallEditor.selectedId=null;syncRawWalls(true);drawSvgPreview();svgStatus('已清空全部手动画墙');
 });
+document.getElementById('btnWallDelete').addEventListener('click',()=>deleteWallById(wallEditor.selectedId));
 document.getElementById('btnSvgFit').addEventListener('click', fitSvgPreview);
 floorModal.addEventListener('mousedown', e=>{ if(e.target===floorModal) closeFloorModal(); });
 window.addEventListener('keydown', e=>{
-  if(e.key!=='Escape'||!floorModal.classList.contains('open')) return;
+  if(!floorModal.classList.contains('open')) return;
+  const tag=document.activeElement?.tagName;
+  if((e.key==='Delete'||e.key==='Backspace')&&wallEditor.selectedId&&!['INPUT','TEXTAREA','SELECT'].includes(tag)){
+    e.preventDefault();deleteWallById(wallEditor.selectedId);return;
+  }
+  if(e.key!=='Escape') return;
+  if(wallEditor.drag){ cancelWallDrag();return; }
+  if(wallEditor.selectedId){ wallEditor.selectedId=null;drawSvgPreview();updateManualWallStatus();return; }
   if(manualWall.start){ manualWall.start=null;manualWall.hover=null;drawSvgPreview();updateManualWallStatus();return; }
   closeFloorModal();
 });
 document.getElementById('btnSvgUpload').addEventListener('click', ()=> document.getElementById('svgFile').click());
 document.getElementById('svgFile').addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleSvgFile(f); e.target.value=''; });
 document.getElementById('btnSvgApply').addEventListener('click', applySvg);
+document.getElementById('btnStartCalib').addEventListener('click',()=>{
+  if(!svgData){alert('请先上传 JPG、PNG 或 SVG 户型图');return;}
+  const mode=document.getElementById('svgCalibMode');
+  mode.checked=!mode.checked;svgCalib.pts=[];svgCalib.dir='auto';document.getElementById('svgDist').value='';
+  if(mode.checked){document.getElementById('manualWallMode').checked=false;manualWall.start=null;manualWall.hover=null;wallEditor.selectedId=null;wallEditor.drag=null;}
+  updateSvgPreviewCursor();updateSvgCalibUi();drawSvgPreview();
+});
 document.getElementById('btnSvgCalib').addEventListener('click', ()=>{
-  if(svgCalib.pts.length!==2){ alert('请先在预览图上勾选“校准模式”并点两点'); return; }
+  if(svgCalib.pts.length!==2){ alert('请先点击“两点校准”并在预览图上点选两个参考点'); return; }
   const real=parseFloat(document.getElementById('svgDist').value);
-  if(!(real>0)){ alert('请输入两点实际距离(米)'); return; }
-  let d; const [a,b]=svgCalib.pts;
-  if(svgCalib.dir==='h') d=Math.abs(b.x-a.x); else if(svgCalib.dir==='v') d=Math.abs(b.y-a.y); else d=Math.hypot(b.x-a.x,b.y-a.y);
+  if(!(real>0)){ alert('请输入两点实际距离（米）'); return; }
+  const [a,b]=svgCalib.pts,d=Math.hypot(b.x-a.x,b.y-a.y);
   if(!(d>0)){ alert('两点图纸距离为零'); return; }
   svgData.scale=real/d;
   svgData.imageCalibrated=svgData.format==='IMAGE'?true:svgData.imageCalibrated;
   document.getElementById('svgScale').value=svgData.scale;
-  svgStatus(`校准完成：1 ${svgData.format==='IMAGE'?'像素':'用户单位'} = ${svgData.scale.toExponential(3)} 米（${real}m ÷ ${d.toFixed(1)}，${svgCalib.dir==='h'?'水平':svgCalib.dir==='v'?'垂直':'自由'}）${svgData.format==='IMAGE'?'，正在自动分析墙面…':''}`);
+  document.getElementById('svgCalibMode').checked=false;
+  const dirText=svgCalib.dir==='h'?'水平':'垂直';
+  svgStatus(`校准完成：1 ${svgData.format==='IMAGE'?'像素':'用户单位'} = ${svgData.scale.toExponential(3)} 米（${dirText}吸附，${real}m ÷ ${d.toFixed(2)}）${svgData.format==='IMAGE'?'，正在自动分析墙面…':''}`);
+  svgCalib.pts=[];svgCalib.dir='auto';document.getElementById('svgDist').value='';
+  updateSvgPreviewCursor();updateSvgCalibUi();drawSvgPreview();
   if(svgData.format==='IMAGE') analyzeImageWalls();
 });
-document.getElementById('svgCalibDir').addEventListener('change', e=>{
-  svgCalib.dir=e.target.value;
-  if(svgCalib.pts.length===2){
-    const a=svgCalib.pts[0], b=svgCalib.pts[1];
-    if(svgCalib.dir==='h') b.y=a.y; else if(svgCalib.dir==='v') b.x=a.x;
-    drawSvgPreview(); updateSvgCalibDist();
-  }
+document.getElementById('btnSvgCalibReset').addEventListener('click', ()=>{
+  svgCalib.pts=[];svgCalib.dir='auto';document.getElementById('svgDist').value='';document.getElementById('svgCalibMode').checked=true;
+  updateSvgPreviewCursor();updateSvgCalibUi();drawSvgPreview();
 });
-document.getElementById('svgCalibMode').addEventListener('change', ()=>{
-  const checked=document.getElementById('svgCalibMode').checked;
-  if(checked){ document.getElementById('manualWallMode').checked=false;manualWall.start=null;manualWall.hover=null; }
-  else svgCalib.pts=[];
-  updateSvgPreviewCursor();drawSvgPreview();
-});
-document.getElementById('btnSvgCalibReset').addEventListener('click', ()=>{ svgCalib.pts=[]; drawSvgPreview(); });
 document.getElementById('btnSvgClear').addEventListener('click', ()=>{
-  svgData=null; svgCalib.pts=[];manualWall.segments=[];manualWall.start=null;manualWall.hover=null;
+  svgData=null; svgCalib.pts=[];manualWall.segments=[];manualWall.start=null;manualWall.hover=null;wallEditor.selectedId=null;wallEditor.drag=null;
   svgPrev.innerHTML='';
   document.getElementById('svgPreviewEmpty').style.display='flex';
   document.getElementById('svgCalibMode').checked=false;
   document.getElementById('manualWallMode').checked=false;
-  document.getElementById('svgDist').value='';updateManualWallStatus();
+  document.getElementById('svgDist').value='';updateManualWallStatus();updateSvgCalibUi();
   svgStatus('未导入户型');
   if(wallGroup){ while(wallGroup.children.length){ const c=wallGroup.children[0]; wallGroup.remove(c); if(c.geometry) c.geometry.dispose(); } }
   renderAll();
