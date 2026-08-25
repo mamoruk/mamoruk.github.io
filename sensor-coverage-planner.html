@@ -80,6 +80,7 @@
   .import-progress.active{display:block;}
   .import-progress-track{height:6px;margin-top:7px;border-radius:999px;overflow:hidden;background:#091019;}
   .import-progress-bar{width:18%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#54a8ff,#4fd1d9);animation:importPulse 1.15s ease-in-out infinite alternate;}
+  input[type=range]{accent-color:var(--accent);cursor:pointer;}
   @keyframes importPulse{from{transform:translateX(-20%);opacity:.65}to{transform:translateX(455%);opacity:1}}
   .cadprev{margin-top:8px;}
   body.modal-open{overflow:hidden;}
@@ -164,7 +165,7 @@
       <button id="btnFloorModal" style="width:100%">打开户型导入工作区</button>
       <div class="cadstatus" id="svgStatusSummary" style="margin-top:7px">未导入户型</div>
       <label class="chk"><input type="checkbox" id="ckWalls" checked> 显示墙体 (各视图 + 3D)</label>
-      <div class="muted" style="font-size:11px;line-height:1.5">支持 SVG、DXF 与 DWG。DXF/DWG 的重计算在后台 Worker 中执行，避免页面假死；DWG 首次使用仍需联网加载 LibreDWG，可随时取消。</div>
+      <div class="muted" style="font-size:11px;line-height:1.5">支持 JPG、PNG 平面图和 SVG。上传图片后先用两点校准确认比例尺，再自动提取水平/垂直墙面；可调黑白阈值、最小墙段和扫描方向。</div>
     </div>
 
     <div class="card">
@@ -240,8 +241,8 @@
   <div class="floor-modal" role="dialog" aria-modal="true" aria-labelledby="floorModalTitle">
     <div class="floor-modal-head">
       <div>
-        <h2 id="floorModalTitle">SVG / DXF / DWG 户型导入与比例尺校准</h2>
-        <div class="muted" style="font-size:11px;margin-top:2px">统一大图预览 · 精确点选 · 墙体参数设置</div>
+        <h2 id="floorModalTitle">JPG / PNG / SVG 户型导入与墙体分析</h2>
+        <div class="muted" style="font-size:11px;margin-top:2px">原图大图预览 · 两点比例尺校准 · 自动墙面提取</div>
       </div>
       <button class="ghost" id="btnFloorClose" aria-label="关闭户型导入窗口">关闭</button>
     </div>
@@ -249,15 +250,15 @@
       <div class="floor-preview-pane">
         <div class="floor-preview-toolbar">
           <div class="btns">
-            <button id="btnSvgUpload">上传 SVG / DXF / DWG</button>
+            <button id="btnSvgUpload">上传 JPG / PNG / SVG</button>
             <button class="ghost" id="btnSvgFit">适应窗口</button>
-            <input id="svgFile" type="file" accept=".svg,.dxf,.dwg,image/svg+xml,application/dxf,application/acad" style="display:none">
+            <input id="svgFile" type="file" accept=".jpg,.jpeg,.png,.svg,image/jpeg,image/png,image/svg+xml" style="display:none">
           </div>
-          <span class="tag">滚轮缩放 · 左键拖动平移 · 校准模式下点击取点</span>
+          <span class="tag" id="floorPreviewHint">滚轮缩放 · 左键拖动平移 · 校准/画墙模式下点击取点</span>
         </div>
         <div class="floor-preview-stage" id="svgPreviewWrap">
           <svg id="svgPreview" xmlns="http://www.w3.org/2000/svg"></svg>
-          <div class="floor-empty" id="svgPreviewEmpty">请点击“上传 SVG / DXF / DWG”<br>导入后可在此放大并精确选点</div>
+          <div class="floor-empty" id="svgPreviewEmpty">请点击“上传 JPG / PNG / SVG”<br>图片导入后先校准比例尺，再自动分析墙面</div>
         </div>
       </div>
       <aside class="floor-settings">
@@ -293,6 +294,40 @@
           <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">开启校准后光标变为十字准星。依次点选两个已知距离的参考点，输入真实距离后应用。</div>
         </div>
         <div class="floor-settings-section">
+          <h3>图片墙面分析</h3>
+          <label>墙线黑度阈值 <span class="muted" id="imgThresholdValue">165</span></label>
+          <input id="imgThreshold" type="range" min="40" max="245" step="1" value="165" style="width:100%">
+          <label>最小墙段长度（米）</label>
+          <input id="imgMinWall" type="number" step="0.1" min="0.2" value="0.8">
+          <label>扫描方向</label>
+          <select id="imgWallDirection" style="width:100%;background:#0d1117;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px">
+            <option value="both">水平 + 垂直</option>
+            <option value="h">仅水平墙</option>
+            <option value="v">仅垂直墙</option>
+          </select>
+          <button class="ghost" id="btnImageAnalyze" style="width:100%;margin-top:9px">重新分析图片墙面</button>
+          <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">适合黑色或深色墙线、浅色背景的平面图。门窗、文字和家具可能产生误识别，可提高最小墙段或降低黑度阈值过滤。</div>
+        </div>
+        <div class="floor-settings-section">
+          <h3>手动画墙体</h3>
+          <label class="chk"><input type="checkbox" id="manualWallMode"> 开启手动画墙模式</label>
+          <label>绘制方向约束</label>
+          <select id="manualWallDir" style="width:100%;background:#0d1117;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px">
+            <option value="auto">自动吸附水平/垂直</option>
+            <option value="free">自由角度</option>
+            <option value="h">仅水平</option>
+            <option value="v">仅垂直</option>
+          </select>
+          <label class="chk"><input type="checkbox" id="manualWallContinue" checked> 连续绘制（上一段终点作为下一段起点）</label>
+          <div class="btns" style="margin-top:8px">
+            <button class="ghost" id="btnManualUndo">撤销一段</button>
+            <button class="ghost" id="btnManualCancel">取消当前线</button>
+            <button class="danger" id="btnManualClear">清空手动画墙</button>
+          </div>
+          <div class="cadstatus" id="manualWallStatus" style="margin-top:8px">手动画墙 0 段</div>
+          <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.5">开启后依次点击起点和终点。橙色为手动画墙；右键点击橙色墙段可删除。按 Esc 可取消当前未完成线段。</div>
+        </div>
+        <div class="floor-settings-section">
           <h3>墙体生成参数</h3>
           <label>墙厚（米）</label>
           <input id="svgThick" type="number" step="0.05" min="0.01" value="0.2">
@@ -302,7 +337,7 @@
       </aside>
     </div>
     <div class="floor-modal-foot">
-      <span class="muted" style="font-size:11px">SVG：闭合实心图形 · DXF：后台解析 · DWG：Worker 中运行 LibreDWG（GPL-3.0，需联网，可取消）</span>
+      <span class="muted" style="font-size:11px">JPG/PNG：本地像素分析，不上传服务器 · SVG：闭合实心图形 · 图片识别结果请在生成前检查</span>
       <div class="btns">
         <button class="danger" id="btnSvgClear">清除户型</button>
         <button class="ghost" id="btnFloorCancel">取消/关闭</button>
@@ -337,6 +372,7 @@ let svgData = null;
 let showWalls = true;
 let wallHeight = 3;                 // 墙体高度(米)：用于 3D 拉伸与信号遮挡判定
 const svgCalib = { pts:[], dir:'free' };   // 校准用的两点(SVG 用户坐标)与方向约束
+const manualWall={segments:[],start:null,hover:null};
 let covCache = null;                // 覆盖率位图缓存 {covUrl,blindUrl,motionPct,presencePct}
 
 function radii(s){
@@ -416,7 +452,7 @@ function requestRender(skipStats){
   });
 }
 
-// ---------- 户型文件解析：SVG / DXF 离线，DWG 按需加载 LibreDWG WASM ----------
+// ---------- 户型文件解析：JPG / PNG 像素墙面分析 + SVG 闭合轮廓 ----------
 function svgStatus(t){
   const el=document.getElementById('svgStatus'); if(el) el.textContent=t;
   const summary=document.getElementById('svgStatusSummary');
@@ -498,66 +534,8 @@ function parsePoints(str){
 }
 function circlePts(cx,cy,r){ const v=[]; const n=64; for(let i=0;i<n;i++){ const a=i/n*2*Math.PI; v.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)}); } return v; }
 function ellipsePts(cx,cy,rx,ry){ const v=[]; const n=64; for(let i=0;i<n;i++){ const a=i/n*2*Math.PI; v.push({x:cx+rx*Math.cos(a),y:cy+ry*Math.sin(a)}); } return v; }
-function parseDXF(text){
-  const lines=String(text||'').replace(/\r/g,'').split('\n');
-  const pairs=[];
-  for(let i=0;i+1<lines.length;i+=2){
-    const code=parseInt(lines[i].trim(),10);
-    if(Number.isFinite(code)) pairs.push({code,value:lines[i+1].trim()});
-  }
-  const segs=[]; let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  const track=(x,y)=>{ if(!isFinite(x)||!isFinite(y)) return; minX=Math.min(minX,x); minY=Math.min(minY,y); maxX=Math.max(maxX,x); maxY=Math.max(maxY,y); };
-  const addSeg=(x1,y1,x2,y2)=>{ if(![x1,y1,x2,y2].every(Number.isFinite)||Math.hypot(x2-x1,y2-y1)<1e-9) return; segs.push({x1,y1,x2,y2}); track(x1,y1); track(x2,y2); };
-  const val=(arr,code,def=NaN)=>{ const p=arr.find(x=>x.code===code); return p?parseFloat(p.value):def; };
-  const vals=(arr,code)=>arr.filter(x=>x.code===code).map(x=>parseFloat(x.value));
-  const sampleArc=(cx,cy,r,a0,a1)=>{
-    if(!(r>0)) return;
-    let span=a1-a0; while(span<=0) span+=360;
-    const n=Math.max(8,Math.ceil(span/5));
-    let prev={x:cx+r*Math.cos(a0*Math.PI/180),y:cy+r*Math.sin(a0*Math.PI/180)};
-    for(let j=1;j<=n;j++){ const a=(a0+span*j/n)*Math.PI/180; const p={x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)}; addSeg(prev.x,prev.y,p.x,p.y); prev=p; }
-  };
-  let inEntities=false, current=null, poly=null;
-  const finish=()=>{
-    if(!current) return;
-    const t=current.type, a=current.data;
-    if(t==='LINE') addSeg(val(a,10),val(a,20),val(a,11),val(a,21));
-    else if(t==='CIRCLE') sampleArc(val(a,10),val(a,20),val(a,40),0,360);
-    else if(t==='ARC') sampleArc(val(a,10),val(a,20),val(a,40),val(a,50,0),val(a,51,360));
-    else if(t==='LWPOLYLINE'){
-      const xs=vals(a,10), ys=vals(a,20), pts=[];
-      for(let i=0;i<Math.min(xs.length,ys.length);i++) pts.push({x:xs[i],y:ys[i]});
-      for(let i=0;i+1<pts.length;i++) addSeg(pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y);
-      if((val(a,70,0)&1) && pts.length>2) addSeg(pts.at(-1).x,pts.at(-1).y,pts[0].x,pts[0].y);
-    } else if(t==='POLYLINE') poly={pts:[],closed:(val(a,70,0)&1)!==0};
-    else if(t==='VERTEX' && poly) poly.pts.push({x:val(a,10),y:val(a,20)});
-    else if(t==='SEQEND' && poly){
-      for(let i=0;i+1<poly.pts.length;i++) addSeg(poly.pts[i].x,poly.pts[i].y,poly.pts[i+1].x,poly.pts[i+1].y);
-      if(poly.closed&&poly.pts.length>2) addSeg(poly.pts.at(-1).x,poly.pts.at(-1).y,poly.pts[0].x,poly.pts[0].y);
-      poly=null;
-    }
-    current=null;
-  };
-  for(let i=0;i<pairs.length;i++){
-    const p=pairs[i];
-    if(p.code===0){
-      finish();
-      if(p.value==='SECTION' && pairs[i+1]?.code===2 && pairs[i+1].value==='ENTITIES'){ inEntities=true; i++; continue; }
-      if(p.value==='ENDSEC'){ if(inEntities) break; continue; }
-      if(!inEntities) continue;
-      current={type:p.value,data:[]};
-    } else if(current) current.data.push(p);
-  }
-  finish();
-  if(!isFinite(minX)){ minX=0;minY=0;maxX=0;maxY=0; }
-  return {segments:segs,minX,minY,maxX,maxY};
-}
-
-const DWG_MODULE_URL='https://cdn.jsdelivr.net/npm/@cadview/dwg/+esm';
-const MAX_DWG_BYTES=30*1024*1024;
-const WARN_DWG_BYTES=12*1024*1024;
-const MAX_IMPORT_SEGMENTS=2500;
 const MAX_PREVIEW_SEGMENTS=2000;
+const MAX_IMAGE_ANALYSIS_SIZE=1600;
 let floorImportJob=null;
 
 function setFloorImportBusy(active,stage){
@@ -571,9 +549,8 @@ function setFloorImportBusy(active,stage){
   if(apply) apply.disabled=!!active;
 }
 
-function cancelFloorImport(message='已取消当前导入'){
+function cancelFloorImport(message='已取消当前分析'){
   if(!floorImportJob) return;
-  floorImportJob.cancelled=true;
   if(floorImportJob.timer) clearTimeout(floorImportJob.timer);
   if(floorImportJob.worker) floorImportJob.worker.terminate();
   if(floorImportJob.reject) floorImportJob.reject(new DOMException(message,'AbortError'));
@@ -582,88 +559,150 @@ function cancelFloorImport(message='已取消当前导入'){
   svgStatus(message);
 }
 
-function createCadWorkerSource(){
-  const parser=parseDXF.toString();
+function createImageWallWorkerSource(){
   return `
     "use strict";
-    const parseDXF=${parser};
-    const MAX_IMPORT_SEGMENTS=${MAX_IMPORT_SEGMENTS};
-    const DWG_MODULE_URL=${JSON.stringify(DWG_MODULE_URL)};
-    self.onmessage=async event=>{
-      const {kind,payload}=event.data||{};
-      try{
-        let text='';
-        if(kind==='dxf'){
-          self.postMessage({type:'stage',message:'正在后台解析 DXF…'});
-          text=payload;
-        }else if(kind==='dwg'){
-          self.postMessage({type:'stage',message:'正在加载 LibreDWG WASM…'});
-          const mod=await import(DWG_MODULE_URL);
-          if(!mod.convertDwgToDxf) throw new Error('DWG 转换模块未提供 convertDwgToDxf');
-          self.postMessage({type:'stage',message:'正在后台转换 DWG 为 DXF…'});
-          text=await mod.convertDwgToDxf(payload,{timeout:90000});
-          self.postMessage({type:'stage',message:'DWG 已转换，正在解析墙体线段…'});
-        }else{
-          throw new Error('未知 CAD 导入类型');
+    function scanAxis(mask,w,h,minLen,vertical){
+      const major=vertical?h:w, minor=vertical?w:h, finished=[];
+      let active=[];
+      const dark=(a,b)=>vertical?mask[a*w+b]:mask[b*w+a];
+      for(let row=0;row<minor;row++){
+        const runs=[]; let start=-1,last=-1;
+        for(let col=0;col<major;col++){
+          if(dark(col,row)){ if(start<0) start=col; last=col; }
+          else if(start>=0 && col-last>2){ if(last-start+1>=minLen) runs.push({a:start,b:last}); start=-1;last=-1; }
         }
-        const result=parseDXF(text);
-        if(result.segments.length>MAX_IMPORT_SEGMENTS){
-          throw new Error('解析得到 '+result.segments.length+' 段线，超过安全上限 '+MAX_IMPORT_SEGMENTS+'；请先在 CAD 中清理标注、填充和细碎图元后另存为 DXF');
+        if(start>=0 && last-start+1>=minLen) runs.push({a:start,b:last});
+        const next=[];
+        for(const run of runs){
+          let best=null,bestOverlap=0;
+          for(const group of active){
+            const overlap=Math.max(0,Math.min(run.b,group.b)-Math.max(run.a,group.a)+1);
+            const ratio=overlap/Math.max(1,Math.min(run.b-run.a+1,group.b-group.a+1));
+            if(ratio>0.45 && overlap>bestOverlap){ best=group;bestOverlap=overlap; }
+          }
+          if(best){
+            best.a=Math.min(best.a,run.a); best.b=Math.max(best.b,run.b);
+            best.sum+=row; best.count++; best.last=row; next.push(best);
+          }else next.push({a:run.a,b:run.b,sum:row,count:1,last:row});
         }
-        self.postMessage({type:'done',result});
-      }catch(err){
-        self.postMessage({type:'error',message:String(err&&err.message||err)});
+        for(const group of active){ if(!next.includes(group)) finished.push(group); }
+        active=next;
       }
+      finished.push(...active);
+      return finished.filter(g=>g.b-g.a+1>=minLen).map(g=>{
+        const center=g.sum/g.count;
+        return vertical?{x1:center,y1:g.a,x2:center,y2:g.b}:{x1:g.a,y1:center,x2:g.b,y2:center};
+      });
+    }
+    function mergeParallel(lines,vertical,maxGap){
+      const coord=l=>vertical?l.x1:l.y1;
+      const a1=l=>vertical?l.y1:l.x1, a2=l=>vertical?l.y2:l.x2;
+      lines.sort((a,b)=>coord(a)-coord(b));
+      const out=[];
+      for(const line of lines){
+        let target=null;
+        for(let i=out.length-1;i>=0;i--){
+          const prev=out[i], gap=Math.abs(coord(line)-coord(prev));
+          if(gap>maxGap) break;
+          const overlap=Math.max(0,Math.min(a2(line),a2(prev))-Math.max(a1(line),a1(prev)));
+          const ratio=overlap/Math.max(1,Math.min(a2(line)-a1(line),a2(prev)-a1(prev)));
+          if(ratio>0.6){ target=prev;break; }
+        }
+        if(!target) out.push({...line,n:1});
+        else{
+          const c=(coord(target)*target.n+coord(line))/(target.n+1); target.n++;
+          if(vertical){ target.x1=target.x2=c;target.y1=Math.min(target.y1,line.y1);target.y2=Math.max(target.y2,line.y2); }
+          else{ target.y1=target.y2=c;target.x1=Math.min(target.x1,line.x1);target.x2=Math.max(target.x2,line.x2); }
+        }
+      }
+      return out.map(({n,...line})=>line);
+    }
+    self.onmessage=event=>{
+      try{
+        const {buffer,w,h,threshold,minLen,direction,mergeGap}=event.data;
+        const rgba=new Uint8ClampedArray(buffer), mask=new Uint8Array(w*h);
+        for(let i=0,p=0;i<rgba.length;i+=4,p++){
+          const a=rgba[i+3]/255;
+          const gray=(rgba[i]*0.299+rgba[i+1]*0.587+rgba[i+2]*0.114)*a+255*(1-a);
+          mask[p]=gray<=threshold?1:0;
+        }
+        let segments=[];
+        if(direction!=='v') segments.push(...mergeParallel(scanAxis(mask,w,h,minLen,false),false,mergeGap));
+        if(direction!=='h') segments.push(...mergeParallel(scanAxis(mask,w,h,minLen,true),true,mergeGap));
+        self.postMessage({type:'done',segments});
+      }catch(err){ self.postMessage({type:'error',message:String(err&&err.message||err)}); }
     };
   `;
 }
 
-function runCadWorker(kind,payload,timeoutMs){
+function runImageWallWorker(imageData,options){
   return new Promise((resolve,reject)=>{
     let worker;
     try{
-      const url=URL.createObjectURL(new Blob([createCadWorkerSource()],{type:'text/javascript'}));
-      worker=new Worker(url,{type:'module'});
-      setTimeout(()=>URL.revokeObjectURL(url),0);
-    }catch(err){
-      reject(new Error('浏览器无法启动后台解析 Worker：'+(err&&err.message||err)));
-      return;
-    }
-    const job={worker,reject,cancelled:false,timer:null};
-    floorImportJob=job;
+      const url=URL.createObjectURL(new Blob([createImageWallWorkerSource()],{type:'text/javascript'}));
+      worker=new Worker(url); setTimeout(()=>URL.revokeObjectURL(url),0);
+    }catch(err){ reject(new Error('浏览器无法启动图片分析 Worker：'+(err&&err.message||err))); return; }
+    const job={worker,reject,timer:null}; floorImportJob=job;
     job.timer=setTimeout(()=>{
       if(floorImportJob!==job) return;
-      worker.terminate();
-      floorImportJob=null;
-      setFloorImportBusy(false);
-      reject(new Error(`导入超过 ${Math.round(timeoutMs/1000)} 秒，已自动终止；建议先精简图纸或另存为 DXF`));
-    },timeoutMs);
+      worker.terminate(); floorImportJob=null; setFloorImportBusy(false);
+      reject(new Error('图片墙面分析超过 30 秒，已自动终止；请缩小图片或提高最小墙段长度'));
+    },30000);
     worker.onmessage=event=>{
       if(floorImportJob!==job) return;
+      clearTimeout(job.timer); worker.terminate(); floorImportJob=null; setFloorImportBusy(false);
       const data=event.data||{};
-      if(data.type==='stage'){
-        setFloorImportBusy(true,data.message);
-        svgStatus(data.message);
-        return;
-      }
-      clearTimeout(job.timer);
-      worker.terminate();
-      floorImportJob=null;
-      setFloorImportBusy(false);
-      if(data.type==='done') resolve(data.result);
-      else reject(new Error(data.message||'后台解析失败'));
+      if(data.type==='done') resolve(data.segments||[]); else reject(new Error(data.message||'图片墙面分析失败'));
     };
     worker.onerror=event=>{
       if(floorImportJob!==job) return;
-      clearTimeout(job.timer);
-      worker.terminate();
-      floorImportJob=null;
-      setFloorImportBusy(false);
-      reject(new Error(event.message||'后台 Worker 运行失败'));
+      clearTimeout(job.timer); worker.terminate(); floorImportJob=null; setFloorImportBusy(false);
+      reject(new Error(event.message||'图片墙面分析 Worker 运行失败'));
     };
-    const transfer=payload instanceof ArrayBuffer?[payload]:[];
-    worker.postMessage({kind,payload},transfer);
+    worker.postMessage({buffer:imageData.data.buffer,w:imageData.width,h:imageData.height,...options},[imageData.data.buffer]);
   });
+}
+
+function readFileDataUrl(file){
+  return new Promise((resolve,reject)=>{ const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error||new Error('读取图片失败'));r.readAsDataURL(file); });
+}
+function loadImage(src){
+  return new Promise((resolve,reject)=>{ const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('图片解码失败'));img.src=src; });
+}
+function imageWallBounds(segments){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  segments.forEach(s=>{ minX=Math.min(minX,s.x1,s.x2);minY=Math.min(minY,s.y1,s.y2);maxX=Math.max(maxX,s.x1,s.x2);maxY=Math.max(maxY,s.y1,s.y2); });
+  return isFinite(minX)?{minX,minY,maxX,maxY}:null;
+}
+async function analyzeImageWalls(){
+  if(!svgData || svgData.format!=='IMAGE' || !svgData.imageSrc){ alert('请先上传 JPG 或 PNG 平面图'); return; }
+  if(!svgData.imageCalibrated){ alert('请先开启两点校准，在图上选择两个已知距离点并应用校准'); return; }
+  try{
+    setFloorImportBusy(true,'正在分析图片中的水平和垂直墙面…');
+    svgStatus('正在分析图片墙面…');
+    const img=await loadImage(svgData.imageSrc);
+    const ratio=Math.min(1,MAX_IMAGE_ANALYSIS_SIZE/Math.max(img.naturalWidth,img.naturalHeight));
+    const w=Math.max(1,Math.round(img.naturalWidth*ratio)), h=Math.max(1,Math.round(img.naturalHeight*ratio));
+    const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+    const threshold=Number(document.getElementById('imgThreshold').value)||165;
+    const minWall=Math.max(0.2,Number(document.getElementById('imgMinWall').value)||0.8);
+    const direction=document.getElementById('imgWallDirection').value;
+    const minLen=Math.max(8,Math.round(minWall/svgData.scale*ratio));
+    const mergeGap=Math.max(2,Math.round(0.35/svgData.scale*ratio));
+    const found=await runImageWallWorker(ctx.getImageData(0,0,w,h),{threshold,minLen,direction,mergeGap});
+    svgData.autoWalls=found.map(s=>({x1:s.x1/ratio,y1:s.y1/ratio,x2:s.x2/ratio,y2:s.y2/ratio,source:'auto'}));
+    ensureManualWalls(); syncRawWalls();
+    if(!svgData.raw.length){ svgStatus('未识别到符合条件的墙面。请提高黑度阈值、降低最小墙段，或开启手动画墙模式补画。'); drawSvgPreview(); return; }
+    const b=svgData.wallBounds;
+    svgStatus(`图片墙面分析完成：识别 ${svgData.raw.length} 段，墙体外框约 ${((b.maxX-b.minX)*svgData.scale).toFixed(2)}m × ${((b.maxY-b.minY)*svgData.scale).toFixed(2)}m。请检查青色识别线后生成墙体。`);
+    drawSvgPreview();
+  }catch(err){
+    setFloorImportBusy(false);
+    if(err&&err.name==='AbortError') return;
+    console.error(err);svgStatus('墙面分析失败：'+(err&&err.message||err));
+  }
 }
 
 function parseSVG(text){
@@ -716,56 +755,78 @@ function parseSVG(text){
   return { segments:segs, minX,minY,maxX,maxY };
 }
 
-// 统一处理 SVG / DXF / DWG：解析为图纸单位线段 → 估算默认比例 → 预览
+// 统一处理 SVG / JPG / PNG：图片先预览和校准，确认比例尺后自动分析墙面。
 async function handleFloorFile(file){
   if(!file) return;
   const ext=(file.name.split('.').pop()||'').toLowerCase();
-  if(floorImportJob) cancelFloorImport('已取消上一项导入，开始处理新文件');
-  if(ext==='dwg' && file.size>MAX_DWG_BYTES){
-    svgStatus(`导入失败：DWG 文件 ${(file.size/1048576).toFixed(1)}MB，超过前端安全上限 ${Math.round(MAX_DWG_BYTES/1048576)}MB；请先清理图纸或转为 DXF`);
-    return;
-  }
-  if(ext==='dwg' && file.size>WARN_DWG_BYTES){
-    const ok=confirm(`该 DWG 为 ${(file.size/1048576).toFixed(1)}MB，转换可能较慢。现已改为后台处理，页面不会假死，但建议先精简图纸。是否继续？`);
-    if(!ok){ svgStatus('已取消导入大尺寸 DWG'); return; }
-  }
-  svgStatus(ext==='dwg'?'准备在后台加载 DWG 转换模块…':ext==='dxf'?'准备在后台解析 DXF…':'解析 SVG…');
+  if(floorImportJob) cancelFloorImport('已取消上一项分析，开始处理新文件');
   try{
-    let res, format=ext.toUpperCase();
-    if(ext==='svg') res=parseSVG(await file.text());
-    else if(ext==='dxf'){
-      setFloorImportBusy(true,'正在读取 DXF 文件…');
-      res=await runCadWorker('dxf',await file.text(),60000);
-    }else if(ext==='dwg'){
-      setFloorImportBusy(true,'正在读取 DWG 文件…');
-      res=await runCadWorker('dwg',await file.arrayBuffer(),120000);
-    }else throw new Error('仅支持 SVG、DXF、DWG 文件');
-    if(!res.segments.length){ svgStatus(`${format} 中未解析到可用墙体线段`); showSvgPreview(res); return; }
-    const maxDim=Math.max(res.maxX-res.minX, res.maxY-res.minY);
-    const guess=maxDim>500?0.001:1;
-    svgData={ raw:res.segments, minX:res.minX, minY:res.minY, maxX:res.maxX, maxY:res.maxY,
-              scale:guess, thickness:0.2, wallHeight:Math.max(0.1,H), walls:[], fileName:file.name, format };
-    document.getElementById('svgScale').value=guess;
+    let res;
+    if(ext==='svg'){
+      svgStatus('正在解析 SVG…');
+      res=parseSVG(await file.text());
+      if(!res.segments.length){ svgStatus('SVG 中未解析到闭合实心墙体轮廓'); showSvgPreview(res); return; }
+      const maxDim=Math.max(res.maxX-res.minX,res.maxY-res.minY);
+      const guess=maxDim>500?0.001:1;
+      svgData={raw:res.segments.map(s=>({...s,source:'auto'})),autoWalls:res.segments.map(s=>({...s,source:'auto'})),manualWalls:[],minX:res.minX,minY:res.minY,maxX:res.maxX,maxY:res.maxY,scale:guess,thickness:0.2,wallHeight:Math.max(0.1,H),walls:[],fileName:file.name,format:'SVG'};
+      document.getElementById('svgScale').value=guess;
+      svgStatus(`已导入 ${file.name}（SVG）：解析 ${res.segments.length} 段轮廓。请确认比例尺或使用两点校准后生成墙体。`);
+      showSvgPreview(svgData);
+    }else if(['jpg','jpeg','png'].includes(ext) || /^image\/(jpeg|png)$/.test(file.type)){
+      svgStatus('正在读取平面图图片…');
+      const src=await readFileDataUrl(file),img=await loadImage(src);
+      svgData={raw:[],autoWalls:[],manualWalls:[],minX:0,minY:0,maxX:img.naturalWidth,maxY:img.naturalHeight,scale:1,thickness:0.2,wallHeight:Math.max(0.1,H),walls:[],fileName:file.name,format:'IMAGE',imageSrc:src,imageWidth:img.naturalWidth,imageHeight:img.naturalHeight,imageCalibrated:false,wallBounds:null};
+      document.getElementById('svgScale').value='';
+      document.getElementById('svgCalibMode').checked=true;
+      svgStatus(`已载入 ${file.name}（${img.naturalWidth}×${img.naturalHeight}px）。请在图上选择两个已知距离点，输入实际距离并应用校准；随后可自动识别并用手动画墙补充。`);
+      showSvgPreview(svgData);
+      updateSvgPreviewCursor();
+    }else throw new Error('仅支持 JPG、PNG 或 SVG 文件');
     document.getElementById('svgThick').value=0.2;
     document.getElementById('svgWallH').value=Math.max(0.1,H).toFixed(1);
     wallHeight=Math.max(0.1,H);
-    const previewNote=res.segments.length>MAX_PREVIEW_SEGMENTS?`；预览已抽样显示 ${MAX_PREVIEW_SEGMENTS} 段以保持流畅`:'';
-    svgStatus(`已导入 ${file.name}（${format}）：解析 ${res.segments.length} 段墙体线段，外框约 ${maxDim.toFixed(0)} 图纸单位${previewNote}。请设比例或校准后“生成墙体”。`);
-    showSvgPreview(res);
-    svgCalib.pts=[]; svgCalib.dir='free'; document.getElementById('svgCalibMode').checked=false;
+    svgCalib.pts=[]; svgCalib.dir='free';
   }catch(err){
     setFloorImportBusy(false);
     if(err&&err.name==='AbortError') return;
-    console.error(err);
-    const extra=ext==='dwg'?'；请检查网络，或先在 CAD 软件中清理图层并另存为 DXF 后导入':'';
-    svgStatus('导入失败：'+(err&&err.message||err)+extra);
+    console.error(err);svgStatus('导入失败：'+(err&&err.message||err));
   }
 }
-const handleSvgFile=handleFloorFile; // 兼容原有调用名称
+const handleSvgFile=handleFloorFile;
 
-// SVG 预览（支持滚轮缩放、拖动平移、两点校准并约束水平/垂直）
+// 户型预览（支持缩放、平移、两点校准和手动画墙）
 const svgPrev = document.getElementById('svgPreview');
 let svgPrevView = {x:0,y:0,w:1,h:1};
+function ensureManualWalls(){
+  if(!svgData) return [];
+  if(!Array.isArray(svgData.manualWalls)) svgData.manualWalls=[];
+  manualWall.segments=svgData.manualWalls;
+  return manualWall.segments;
+}
+function updateManualWallStatus(){
+  const count=svgData&&Array.isArray(svgData.manualWalls)?svgData.manualWalls.length:0;
+  const el=document.getElementById('manualWallStatus'); if(el) el.textContent=`手动画墙 ${count} 段${manualWall.start?' · 已选择起点':''}`;
+  const mode=document.getElementById('manualWallMode')?.checked;
+  const hint=document.getElementById('floorPreviewHint');
+  if(hint) hint.textContent=mode?'画墙：点击起点和终点 · 右键橙色墙段删除 · 滚轮缩放':document.getElementById('svgCalibMode')?.checked?'校准：依次点击两个参考点 · 滚轮缩放':'滚轮缩放 · 左键拖动平移';
+}
+function manualWallPoint(pt){
+  if(!manualWall.start) return {x:pt.x,y:pt.y};
+  const dir=document.getElementById('manualWallDir').value;
+  const dx=pt.x-manualWall.start.x,dy=pt.y-manualWall.start.y;
+  if(dir==='h' || (dir==='auto'&&Math.abs(dx)>=Math.abs(dy)*1.35)) return {x:pt.x,y:manualWall.start.y};
+  if(dir==='v' || (dir==='auto'&&Math.abs(dy)>=Math.abs(dx)*1.35)) return {x:manualWall.start.x,y:pt.y};
+  return {x:pt.x,y:pt.y};
+}
+function syncRawWalls(){
+  if(!svgData) return;
+  const auto=Array.isArray(svgData.autoWalls)?svgData.autoWalls:[];
+  const manual=ensureManualWalls();
+  svgData.raw=[...auto.map(s=>({...s,source:'auto'})),...manual.map(s=>({...s,source:'manual'}))];
+  const b=imageWallBounds(svgData.raw);
+  svgData.wallBounds=b;
+  updateManualWallStatus();
+}
 function showSvgPreview(geo){
   const empty=document.getElementById('svgPreviewEmpty'); if(empty) empty.style.display='none';
   const w=Math.max(0.01,geo.maxX-geo.minX), h=Math.max(0.01,geo.maxY-geo.minY);
@@ -774,22 +835,37 @@ function showSvgPreview(geo){
 }
 function applySvgPrevView(){ svgPrev.setAttribute('viewBox', `${svgPrevView.x} ${svgPrevView.y} ${svgPrevView.w} ${svgPrevView.h}`); }
 function drawSvgPreview(geo, crosshair){
-  geo = geo || (svgData? {segments:svgData.raw,minX:svgData.minX,minY:svgData.minY,maxX:svgData.maxX,maxY:svgData.maxY}:null);
+  geo = geo || (svgData? {segments:svgData.raw,minX:svgData.minX,minY:svgData.minY,maxX:svgData.maxX,maxY:svgData.maxY,imageSrc:svgData.imageSrc,format:svgData.format}:null);
   if(!geo) return;
   const w=Math.max(0.01,geo.maxX-geo.minX);
   let html='';
   const allSegments=geo.segments||[];
   const previewStep=Math.max(1,Math.ceil(allSegments.length/MAX_PREVIEW_SEGMENTS));
   const previewFrag=document.createDocumentFragment();
+  if(geo.imageSrc){
+    const image=document.createElementNS('http://www.w3.org/2000/svg','image');
+    image.setAttribute('href',geo.imageSrc); image.setAttribute('x',geo.minX); image.setAttribute('y',geo.minY);
+    image.setAttribute('width',geo.maxX-geo.minX); image.setAttribute('height',geo.maxY-geo.minY);
+    image.setAttribute('preserveAspectRatio','none'); image.setAttribute('opacity','0.86'); previewFrag.appendChild(image);
+  }
   for(let i=0;i<allSegments.length;i+=previewStep){
     const seg=allSegments[i];
     const line=document.createElementNS('http://www.w3.org/2000/svg','line');
     line.setAttribute('x1',seg.x1.toFixed(3)); line.setAttribute('y1',seg.y1.toFixed(3));
     line.setAttribute('x2',seg.x2.toFixed(3)); line.setAttribute('y2',seg.y2.toFixed(3));
-    line.setAttribute('stroke','#7d8794'); line.setAttribute('stroke-width',Math.max(0.02,w/400));
-    line.setAttribute('stroke-linecap','round'); previewFrag.appendChild(line);
+    const manual=seg.source==='manual';
+    line.setAttribute('stroke',manual?'#ffb454':geo.imageSrc?'#39d0d8':'#7d8794'); line.setAttribute('stroke-width',Math.max(manual?0.8:0.4,w/(manual?300:400)));
+    line.setAttribute('stroke-linecap','round'); line.setAttribute('opacity',geo.imageSrc?'0.95':'1');
+    if(manual){ line.dataset.manualWallIndex=String(i); line.style.cursor='pointer'; }
+    previewFrag.appendChild(line);
   }
-  // 十字准线（校准模式跟随鼠标，便于精确定位）
+  const drawMode=document.getElementById('manualWallMode')?.checked;
+  if(drawMode && manualWall.start){
+    const q=manualWall.hover?manualWallPoint(manualWall.hover):manualWall.start;
+    html+=`<line x1="${manualWall.start.x.toFixed(3)}" y1="${manualWall.start.y.toFixed(3)}" x2="${q.x.toFixed(3)}" y2="${q.y.toFixed(3)}" stroke="#ffb454" stroke-width="${Math.max(0.8,w/300)}" stroke-dasharray="${w/140}" pointer-events="none"/>`;
+    html+=`<circle cx="${manualWall.start.x.toFixed(3)}" cy="${manualWall.start.y.toFixed(3)}" r="${Math.max(1,w/150)}" fill="#ffb454" stroke="#fff" stroke-width="${Math.max(0.1,w/600)}" pointer-events="none"/>`;
+  }
+  // 十字准线（校准或画墙模式跟随鼠标，便于精确定位）
   if(crosshair){
     const dw=Math.max(0.04,w/500);
     html+=`<line x1="${crosshair.x.toFixed(3)}" y1="${geo.minY.toFixed(3)}" x2="${crosshair.x.toFixed(3)}" y2="${geo.maxY.toFixed(3)}" stroke="#39d0d8" stroke-width="${dw}" opacity="0.45" stroke-dasharray="${w/200}"/>`;
@@ -811,7 +887,9 @@ function drawSvgPreview(geo, crosshair){
   if(html) svgPrev.insertAdjacentHTML('beforeend',html);
 }
 function updateSvgPreviewCursor(){
-  svgPrev.style.cursor = document.getElementById('svgCalibMode').checked ? 'crosshair' : 'grab';
+  const precise=document.getElementById('svgCalibMode').checked||document.getElementById('manualWallMode').checked;
+  svgPrev.style.cursor=precise?'crosshair':'grab';
+  updateManualWallStatus();
 }
 function svgPrevPoint(e){
   const pt=svgPrev.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
@@ -838,6 +916,22 @@ function setupSvgPreview(){
   let pan=null;
   svgPrev.addEventListener('mousedown', e=>{
     if(e.button!==0) return;
+    if(document.getElementById('manualWallMode').checked){
+      if(!svgData){ alert('请先上传平面图或 SVG'); return; }
+      const pt=svgPrevPoint(e); if(!pt) return;
+      const p=manualWallPoint(pt);
+      if(!manualWall.start){ manualWall.start=p;manualWall.hover=p; }
+      else{
+        const len=Math.hypot(p.x-manualWall.start.x,p.y-manualWall.start.y);
+        if(len>Math.max(0.5,svgPrevView.w/1000)){
+          ensureManualWalls().push({x1:manualWall.start.x,y1:manualWall.start.y,x2:p.x,y2:p.y,source:'manual'});
+          syncRawWalls();
+          manualWall.start=document.getElementById('manualWallContinue').checked?p:null;
+          manualWall.hover=p;
+        }
+      }
+      drawSvgPreview(); updateManualWallStatus(); return;
+    }
     if(document.getElementById('svgCalibMode').checked){
       const pt=svgPrevPoint(e); if(!pt) return;
       if(svgCalib.pts.length>=2) svgCalib.pts=[];
@@ -859,26 +953,43 @@ function setupSvgPreview(){
   window.addEventListener('mouseup', ()=>{ pan=null; });
   // 校准模式下：鼠标移动时显示十字准线与橡皮筋线，便于选点
   svgPrev.addEventListener('mousemove', e=>{
-    if(!document.getElementById('svgCalibMode').checked) return;
+    const calib=document.getElementById('svgCalibMode').checked;
+    const drawing=document.getElementById('manualWallMode').checked;
+    if(!calib&&!drawing) return;
     const pt=svgPrevPoint(e); if(!pt) return;
-    drawSvgPreview(null, pt);
+    if(drawing) manualWall.hover=pt;
+    drawSvgPreview(null,pt);
   });
   svgPrev.addEventListener('mouseleave', ()=>{
-    if(document.getElementById('svgCalibMode').checked) drawSvgPreview();
+    if(document.getElementById('svgCalibMode').checked||document.getElementById('manualWallMode').checked) drawSvgPreview();
+  });
+  svgPrev.addEventListener('contextmenu',e=>{
+    const line=e.target.closest('[data-manual-wall-index]');
+    if(!line||!svgData) return;
+    e.preventDefault();
+    const rawIndex=Number(line.dataset.manualWallIndex);
+    const seg=(svgData.raw||[])[rawIndex]; if(!seg||seg.source!=='manual') return;
+    const manual=ensureManualWalls();
+    const idx=manual.findIndex(s=>Math.abs(s.x1-seg.x1)<1e-6&&Math.abs(s.y1-seg.y1)<1e-6&&Math.abs(s.x2-seg.x2)<1e-6&&Math.abs(s.y2-seg.y2)<1e-6);
+    if(idx>=0){ manual.splice(idx,1);syncRawWalls();drawSvgPreview();svgStatus(`已删除手动画墙，当前 ${manual.length} 段`); }
   });
 }
 
 // 生成墙体：把原始线段按 scale 换算到米，并按图纸包围盒设置房间 L/W
 function applySvg(){
-  if(!svgData){ alert('请先上传 SVG、DXF 或 DWG 文件'); return; }
+  if(!svgData){ alert('请先上传 JPG、PNG 或 SVG 文件'); return; }
+  if(svgData.format==='IMAGE' && !svgData.imageCalibrated){ alert('图片平面图必须先完成两点比例尺校准'); return; }
+  if(!svgData.raw.length){ alert('尚无可生成的墙面，请先自动分析或开启手动画墙模式绘制墙体'); return; }
+  if(svgData.format==='IMAGE' && svgData.raw.length>600){ alert(`当前共有 ${svgData.raw.length} 段墙面，数量过多，可能包含文字或家具。请提高最小墙段长度、调整阈值，或清理不需要的墙线。`); return; }
   svgData.scale=parseFloat(document.getElementById('svgScale').value)||svgData.scale;
   svgData.thickness=Math.max(0.01, parseFloat(document.getElementById('svgThick').value)||0.2);
   wallHeight=Math.max(0.1, parseFloat(document.getElementById('svgWallH').value)||H);
   svgData.wallHeight=wallHeight;
-  const Lc=(svgData.maxX-svgData.minX)*svgData.scale, Wc=(svgData.maxY-svgData.minY)*svgData.scale;
+  const bounds=svgData.format==='IMAGE'&&svgData.wallBounds?svgData.wallBounds:svgData;
+  const Lc=(bounds.maxX-bounds.minX)*svgData.scale, Wc=(bounds.maxY-bounds.minY)*svgData.scale;
   svgData.walls=svgData.raw.map(seg=>({
-    x1:(seg.x1-svgData.minX)*svgData.scale, y1:(seg.y1-svgData.minY)*svgData.scale,
-    x2:(seg.x2-svgData.minX)*svgData.scale, y2:(seg.y2-svgData.minY)*svgData.scale
+    x1:(seg.x1-bounds.minX)*svgData.scale, y1:(seg.y1-bounds.minY)*svgData.scale,
+    x2:(seg.x2-bounds.minX)*svgData.scale, y2:(seg.y2-bounds.minY)*svgData.scale
   }));
   L=Lc; W=Wc;
   document.getElementById('inL').value=L.toFixed(2);
@@ -1967,9 +2078,11 @@ document.getElementById('btnSave').addEventListener('click', ()=>{
     sensors: sensors.map(s=>({id:s.id,name:sensorName(s),x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence})),
     persons: persons.map(p=>({id:p.id,name:personName(p),x:+p.x.toFixed(3),y:+p.y.toFixed(3),height:p.height,heading:p.heading||0})),
     floorplan: svgData ? { format:svgData.format||'SVG', scale:svgData.scale, thickness:svgData.thickness, wallHeight:svgData.wallHeight, fileName:svgData.fileName,
-                           minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY, raw:svgData.raw, walls:svgData.walls } : null,
+                           minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY, raw:svgData.raw, autoWalls:svgData.autoWalls||[], manualWalls:svgData.manualWalls||[], walls:svgData.walls,
+                           wallBounds:svgData.wallBounds||null, imageWidth:svgData.imageWidth||null, imageHeight:svgData.imageHeight||null, imageCalibrated:!!svgData.imageCalibrated } : null,
     svg: svgData ? { format:svgData.format||'SVG', scale:svgData.scale, thickness:svgData.thickness, wallHeight:svgData.wallHeight, fileName:svgData.fileName,
-                     minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY, raw:svgData.raw, walls:svgData.walls } : null
+                     minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY, raw:svgData.raw, autoWalls:svgData.autoWalls||[], manualWalls:svgData.manualWalls||[], walls:svgData.walls,
+                     wallBounds:svgData.wallBounds||null, imageWidth:svgData.imageWidth||null, imageHeight:svgData.imageHeight||null, imageCalibrated:!!svgData.imageCalibrated } : null
   };
   const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
   const a=document.createElement('a'); a.download='sensor-layout.json';
@@ -1993,11 +2106,14 @@ document.getElementById('fileInput').addEventListener('change', e=>{
       svgData = d.floorplan || d.svg || null;
       if(svgData){
         svgData.format=svgData.format||'SVG';
+        svgData.manualWalls=Array.isArray(svgData.manualWalls)?svgData.manualWalls:[];
+        svgData.autoWalls=Array.isArray(svgData.autoWalls)?svgData.autoWalls:(svgData.raw||[]).filter(s=>s.source!=='manual');
+        syncRawWalls();
         document.getElementById('svgScale').value=svgData.scale;
         document.getElementById('svgThick').value=svgData.thickness;
         document.getElementById('svgWallH').value=svgData.wallHeight;
         wallHeight=svgData.wallHeight||H;
-        svgStatus(`已载入 ${svgData.format||'户型'}：${svgData.fileName||''}，墙体 ${svgData.walls?svgData.walls.length:0} 段`);
+        svgStatus(`已载入 ${svgData.format||'户型'}：${svgData.fileName||''}，墙体 ${svgData.walls?svgData.walls.length:0} 段${svgData.format==='IMAGE'?'（JSON 不内嵌原 JPG，保留已识别墙线）':''}`);
         showSvgPreview({segments:svgData.raw, minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY});
       }
       state.selected=null; state.selectedPerson=null; buildRoom(); if(svgData) buildWalls3D(); fitCamera(); renderAll();
@@ -2028,7 +2144,7 @@ document.getElementById('btn3dPng').addEventListener('click', ()=>{
   const a=document.createElement('a'); a.download='3D视图.png'; a.href=renderer.domElement.toDataURL('image/png'); a.click();
 });
 
-// ---------- SVG / DXF / DWG 户型导入弹窗与控件 ----------
+// ---------- JPG / PNG / SVG 户型导入弹窗与控件 ----------
 const floorModal=document.getElementById('floorModal');
 function fitSvgPreview(){
   if(!svgData) return;
@@ -2048,9 +2164,28 @@ document.getElementById('btnFloorModal').addEventListener('click', openFloorModa
 document.getElementById('btnFloorClose').addEventListener('click', closeFloorModal);
 document.getElementById('btnFloorCancel').addEventListener('click', closeFloorModal);
 document.getElementById('btnFloorImportCancel').addEventListener('click', ()=>cancelFloorImport());
+document.getElementById('btnImageAnalyze').addEventListener('click', analyzeImageWalls);
+document.getElementById('imgThreshold').addEventListener('input',e=>{ document.getElementById('imgThresholdValue').textContent=e.target.value; });
+document.getElementById('manualWallMode').addEventListener('change',e=>{
+  if(e.target.checked){ document.getElementById('svgCalibMode').checked=false;svgCalib.pts=[];ensureManualWalls(); }
+  else{ manualWall.start=null;manualWall.hover=null; }
+  updateSvgPreviewCursor();drawSvgPreview();
+});
+document.getElementById('manualWallDir').addEventListener('change',()=>drawSvgPreview());
+document.getElementById('btnManualUndo').addEventListener('click',()=>{
+  if(!svgData) return;const list=ensureManualWalls();if(list.length){list.pop();syncRawWalls();drawSvgPreview();svgStatus(`已撤销一段手动画墙，剩余 ${list.length} 段`);}
+});
+document.getElementById('btnManualCancel').addEventListener('click',()=>{manualWall.start=null;manualWall.hover=null;drawSvgPreview();updateManualWallStatus();});
+document.getElementById('btnManualClear').addEventListener('click',()=>{
+  if(!svgData) return;ensureManualWalls().length=0;manualWall.start=null;manualWall.hover=null;syncRawWalls();drawSvgPreview();svgStatus('已清空全部手动画墙');
+});
 document.getElementById('btnSvgFit').addEventListener('click', fitSvgPreview);
 floorModal.addEventListener('mousedown', e=>{ if(e.target===floorModal) closeFloorModal(); });
-window.addEventListener('keydown', e=>{ if(e.key==='Escape' && floorModal.classList.contains('open')) closeFloorModal(); });
+window.addEventListener('keydown', e=>{
+  if(e.key!=='Escape'||!floorModal.classList.contains('open')) return;
+  if(manualWall.start){ manualWall.start=null;manualWall.hover=null;drawSvgPreview();updateManualWallStatus();return; }
+  closeFloorModal();
+});
 document.getElementById('btnSvgUpload').addEventListener('click', ()=> document.getElementById('svgFile').click());
 document.getElementById('svgFile').addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleSvgFile(f); e.target.value=''; });
 document.getElementById('btnSvgApply').addEventListener('click', applySvg);
@@ -2062,8 +2197,10 @@ document.getElementById('btnSvgCalib').addEventListener('click', ()=>{
   if(svgCalib.dir==='h') d=Math.abs(b.x-a.x); else if(svgCalib.dir==='v') d=Math.abs(b.y-a.y); else d=Math.hypot(b.x-a.x,b.y-a.y);
   if(!(d>0)){ alert('两点图纸距离为零'); return; }
   svgData.scale=real/d;
+  svgData.imageCalibrated=svgData.format==='IMAGE'?true:svgData.imageCalibrated;
   document.getElementById('svgScale').value=svgData.scale;
-  svgStatus(`校准完成：1 用户单位 = ${svgData.scale.toExponential(3)} 米（${real}m ÷ ${d.toFixed(1)} 单位，${svgCalib.dir==='h'?'水平':svgCalib.dir==='v'?'垂直':'自由'}）`);
+  svgStatus(`校准完成：1 ${svgData.format==='IMAGE'?'像素':'用户单位'} = ${svgData.scale.toExponential(3)} 米（${real}m ÷ ${d.toFixed(1)}，${svgCalib.dir==='h'?'水平':svgCalib.dir==='v'?'垂直':'自由'}）${svgData.format==='IMAGE'?'，正在自动分析墙面…':''}`);
+  if(svgData.format==='IMAGE') analyzeImageWalls();
 });
 document.getElementById('svgCalibDir').addEventListener('change', e=>{
   svgCalib.dir=e.target.value;
@@ -2073,14 +2210,20 @@ document.getElementById('svgCalibDir').addEventListener('change', e=>{
     drawSvgPreview(); updateSvgCalibDist();
   }
 });
-document.getElementById('svgCalibMode').addEventListener('change', ()=>{ if(!document.getElementById('svgCalibMode').checked) svgCalib.pts=[]; updateSvgPreviewCursor(); drawSvgPreview(); });
+document.getElementById('svgCalibMode').addEventListener('change', ()=>{
+  const checked=document.getElementById('svgCalibMode').checked;
+  if(checked){ document.getElementById('manualWallMode').checked=false;manualWall.start=null;manualWall.hover=null; }
+  else svgCalib.pts=[];
+  updateSvgPreviewCursor();drawSvgPreview();
+});
 document.getElementById('btnSvgCalibReset').addEventListener('click', ()=>{ svgCalib.pts=[]; drawSvgPreview(); });
 document.getElementById('btnSvgClear').addEventListener('click', ()=>{
-  svgData=null; svgCalib.pts=[];
+  svgData=null; svgCalib.pts=[];manualWall.segments=[];manualWall.start=null;manualWall.hover=null;
   svgPrev.innerHTML='';
   document.getElementById('svgPreviewEmpty').style.display='flex';
   document.getElementById('svgCalibMode').checked=false;
-  document.getElementById('svgDist').value='';
+  document.getElementById('manualWallMode').checked=false;
+  document.getElementById('svgDist').value='';updateManualWallStatus();
   svgStatus('未导入户型');
   if(wallGroup){ while(wallGroup.children.length){ const c=wallGroup.children[0]; wallGroup.remove(c); if(c.geometry) c.geometry.dispose(); } }
   renderAll();
