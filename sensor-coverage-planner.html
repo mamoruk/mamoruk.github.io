@@ -147,8 +147,9 @@
   </div>
   <span class="hint">右键视图空白处添加对象 · 左键拖拽传感器或人物 · 3D：左键旋转 / 中键平移 / 滚轮缩放 · 选中人物可用 <span class="kbd">W A S D</span> 或方向键移动，<span class="kbd">Shift</span> 加速</span>
   <span class="legend">
-    <span><i class="dot" style="background:var(--red)"></i>运动检测(直径14m@2.8m)</span>
-    <span><i class="dot" style="background:var(--orange)"></i>存在检测(直径10m@2.8m)</span>
+    <span><i class="dot" style="background:var(--red)"></i>运动检测</span>
+    <span><i class="dot" style="background:var(--orange)"></i>存在检测</span>
+    <span><i class="dot" style="background:#6fc3ff"></i>融合模式有人</span>
     <span><i class="swatch" style="background:rgba(255,60,60,.5)"></i>盲区</span>
   </span>
 </header>
@@ -181,12 +182,13 @@
       <label class="chk"><input type="checkbox" id="ckMotion" checked> 运动检测范围</label>
       <label class="chk"><input type="checkbox" id="ckPresence" checked> 存在检测范围</label>
       <label class="chk"><input type="checkbox" id="ckBlind"> 盲区 / 实际覆盖 (地板)</label>
+      <label class="chk"><input type="checkbox" id="ckFusion" checked> 融合模式检测范围</label>
       <label class="chk"><input type="checkbox" id="ckLabels" checked> 3D 坐标浮层</label>
       <div class="row" style="margin-top:8px">
         <span class="muted" style="width:auto">近裁剪距离(m)</span>
         <input id="inNear" type="number" step="0.05" min="0" value="0.4" style="width:80px">
       </div>
-      <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.5">近裁剪面=传感器近端盲区（锥体由此起算）；远裁剪面=地面检测上限；中心轴竖直向下；张角由规格直径/挂高决定，使地面半径恰为探测半径。</div>
+      <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.5">官方参考范围：2.8m 挂高时运动直径 14m、存在直径 10m。系统由参考范围反算视场角，再根据实际挂高、倾角、房间边界与墙体求地面交线。</div>
     </div>
 
     <div class="card">
@@ -367,8 +369,9 @@
 <script>
 "use strict";
 // ---------- 状态 ----------
-const BASE_MOTION = 7;   // 半径(米) @2.8m
-const BASE_PRESENCE = 5; // 半径(米) @2.8m
+const BASE_MOTION = 7;    // 半径(米) @2.8m
+const BASE_PRESENCE = 5;  // 半径(米) @2.8m
+const BASE_FUSION = 2.5;  // 半径(米) @2.8m（融合模式有人直径 5m）
 const REF_H = 2.8;
 
 let L = 10, W = 8, H = 3;
@@ -376,7 +379,7 @@ let sensors = [];
 let persons = [];
 let uid = 1, uidP = 1;
 const state = {
-  showMotion:true, showPresence:true, showBlind:false, showLabels:true,
+  showMotion:true, showPresence:true, showBlind:false, showFusion:true, showLabels:true,
   nearDist:0.4,                 // 近裁剪距离(米)：传感器近端盲区，锥体由该截面起算
   selected:null, selectedPerson:null
 };
@@ -391,11 +394,61 @@ const svgCalib = { pts:[], dir:'auto' };   // 校准用的两点，第二点默�
 const manualWall={segments:[],start:null,hover:null};
 const wallEditor={selectedId:null,drag:null};
 let wallUid=1;
-let covCache = null;                // 覆盖率位图缓存 {covUrl,blindUrl,motionPct,presencePct}
+let covCache=null;                 // 覆盖率位图缓存
+let scanCache=new Map();            // 单次 renderAll 内复用人物扫描结果，避免四视图重复采样
 
+function baseSensorParams(){
+  return {h:REF_H,motionD:BASE_MOTION*2,presenceD:BASE_PRESENCE*2,fusionD:BASE_FUSION*2,angleX:0,angleY:0};
+}
 function radii(s){
-  const k = s.mountH / REF_H;
-  return { rm: s.motion ? BASE_MOTION*k : 0, rp: s.presence ? BASE_PRESENCE*k : 0, k };
+  const p=baseSensorParams(),k=s.mountH/p.h;
+  const motionRadius=Math.max(0,Number(s.motionDiameter??p.motionD)/2);
+  const presenceRadius=Math.max(0,Number(s.presenceDiameter??p.presenceD)/2);
+  const fusionRadius=Math.max(0,Number(s.fusionDiameter??p.fusionD)/2);
+  return {
+    rm:s.motion?motionRadius*k:0,
+    rp:s.presence?presenceRadius*k:0,
+    rf:(s.motion&&s.presence)?fusionRadius*k:0,
+    k,
+    angleX:clamp(Number(s.angleX??s.angle??p.angleX),-80,80),
+    angleY:clamp(Number(s.angleY??p.angleY),-80,80)
+  };
+}
+function baseRadiusForSensor(s,r){
+  const p=baseSensorParams(),k=s.mountH/p.h;
+  return k>1e-9?r/k:0;
+}
+function sensorAxis(s){
+  const {angleX,angleY}=radii(s),tx=Math.tan(angleX*Math.PI/180),ty=Math.tan(angleY*Math.PI/180);
+  const len=Math.hypot(tx,ty,1)||1;
+  return {x:tx/len,y:ty/len,z:-1/len};
+}
+function coneHalfAngle(s,r){
+  return Math.atan2(Math.max(0,baseRadiusForSensor(s,r)),Math.max(0.001,baseSensorParams().h));
+}
+function coneRayDirection(s,r,azimuth){
+  const axis=sensorAxis(s),theta=coneHalfAngle(s,r);
+  const ref=Math.abs(axis.z)<0.95?{x:0,y:0,z:1}:{x:1,y:0,z:0};
+  let ux=ref.y*axis.z-ref.z*axis.y,uy=ref.z*axis.x-ref.x*axis.z,uz=ref.x*axis.y-ref.y*axis.x;
+  const ul=Math.hypot(ux,uy,uz)||1;ux/=ul;uy/=ul;uz/=ul;
+  const vx=axis.y*uz-axis.z*uy,vy=axis.z*ux-axis.x*uz,vz=axis.x*uy-axis.y*ux;
+  const ct=Math.cos(theta),st=Math.sin(theta),ca=Math.cos(azimuth),sa=Math.sin(azimuth);
+  const d={x:axis.x*ct+(ux*ca+vx*sa)*st,y:axis.y*ct+(uy*ca+vy*sa)*st,z:axis.z*ct+(uz*ca+vz*sa)*st};
+  const len=Math.hypot(d.x,d.y,d.z)||1;return {x:d.x/len,y:d.y/len,z:d.z/len};
+}
+function projectedSensorCenter(s){
+  const axis=sensorAxis(s),t=axis.z<-1e-8?s.mountH/-axis.z:0;
+  return {x:s.x+axis.x*t,y:s.y+axis.y*t};
+}
+function pointInSensorCone(s,r,px,py,pz=0){
+  if(!(r>0) || !(s.mountH>0)) return false;
+  const vx=px-s.x,vy=py-s.y,vz=pz-s.mountH;
+  const len=Math.hypot(vx,vy,vz);
+  if(len<1e-7) return true;
+  const axis=sensorAxis(s);
+  const along=vx*axis.x+vy*axis.y+vz*axis.z;
+  if(along<=0 || len<state.nearDist-1e-7) return false;
+  return along/len>=Math.cos(coneHalfAngle(s,r))-1e-7;
 }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function getSensor(id){ return sensors.find(s=>s.id===id); }
@@ -445,17 +498,25 @@ function nearestWallDistances(x,y){
   return {left:dirs.left.d,right:dirs.right.d,up:dirs.up.d,down:dirs.down.d};
 }
 
-// 计算地面点(px,py)被各传感器锥体从地面起算的覆盖高度（含墙体遮挡）
+// 计算人物竖直身体线被各传感器倾斜锥体覆盖的最高位置（含墙体遮挡）。
+// 采用细步长采样，保证与覆盖率共用 pointInSensorCone / isOccluded 判定。
 function scanHeights(px,py){
-  let mH=0, pH=0;
+  const key=`${px.toFixed(4)}|${py.toFixed(4)}`;
+  if(scanCache.has(key))return scanCache.get(key);
+  let mH=0,pH=0,fH=0;
+  const maxZ=Math.max(H,...sensors.map(s=>s.mountH));
+  const step=Math.max(0.015,maxZ/240);
   for(const s of sensors){
-    if(isOccluded(s.x,s.y,s.mountH,px,py)) continue;
-    const {rm,rp}=radii(s);
-    const d=Math.hypot(px-s.x, py-s.y);
-    if(rm>0 && d<=rm){ const hs=s.mountH*(1-d/rm); if(hs>mH) mH=hs; }
-    if(rp>0 && d<=rp){ const hs=s.mountH*(1-d/rp); if(hs>pH) pH=hs; }
+    const {rm,rp,rf}=radii(s);
+    if(!(rm>0||rp>0||rf>0)) continue;
+    for(let z=0;z<=maxZ+1e-7;z+=step){
+      if(isOccluded(s.x,s.y,s.mountH,px,py,z)) continue;
+      if(rm>0 && pointInSensorCone(s,rm,px,py,z)) mH=Math.max(mH,z);
+      if(rp>0 && pointInSensorCone(s,rp,px,py,z)) pH=Math.max(pH,z);
+      if(rf>0 && pointInSensorCone(s,rf,px,py,z)) fH=Math.max(fH,z);
+    }
   }
-  return {mH, pH};
+  const result={mH,pH,fH};scanCache.set(key,result);return result;
 }
 
 // ---------- 渲染调度（rAF 合并，避免拖动时每帧全量重建） ----------
@@ -1214,17 +1275,186 @@ function applyTopViewBox(){
   topSvg.setAttribute('viewBox', `${cx-w/2} ${cy-h/2} ${w} ${h}`);
 }
 
-// 顶视图实际探测轮廓：逐角度调用与 3D 相同的 reachRadius，
-// 同时考虑墙体高度遮挡和房间边界，返回闭合 SVG path。
+// 顶视图实际探测轮廓：对倾斜圆锥的边界射线采样，求其地面交点，
+// 再按墙体高度与房间边界裁剪；0° 时自然退化为原来的圆形范围。
+function coneBoundaryHit(se,baseR,azimuth){
+  const dir=coneRayDirection(se,baseR,azimuth);
+  // 地面足迹只取朝下的圆锥边界射线；水平/朝上的射线不与地面相交。
+  if(dir.z>=-1e-7)return null;
+  const groundT=se.mountH/-dir.z,roomT=roomRayClip(se.x,se.y,dir.x,dir.y,groundT);
+  let t=roomT,surface=roomT<groundT-1e-7?'room':'ground';
+  if(showWalls&&svgData&&svgData.walls&&svgData.walls.length){
+    const wh=Math.max(0.1,wallHeight||H);
+    for(const w of svgData.walls){
+      const ix=se.x+dir.x*t,iy=se.y+dir.y*t,u=segCross(se.x,se.y,ix,iy,w.x1,w.y1,w.x2,w.y2);
+      if(u!==null){
+        const wallT=t*u,beamZ=se.mountH+dir.z*wallT;
+        if(beamZ>=-1e-6&&wh>=beamZ-1e-6&&wallT<t){t=wallT;surface='wall';}
+      }
+    }
+  }
+  return {x:se.x+dir.x*t,y:se.y+dir.y*t,z:Math.max(0,se.mountH+dir.z*t),t,dir,surface};
+}
+// 射线与房间/墙体的最近交点，保留真实撞点 z（不钳到 0）。
+//   • surface='ground' → z 本身是 0（撞地面）
+//   • surface='room'/'wall' → z 是墙面撞点真实高度，保留才能画出"墙面撞点"
+//     （钳到 0 会让撞墙点退化成贴地的墙脚，凸包随之塌陷）
+function coneRayHit(se,dir){
+  if(dir.z>=-1e-7)return null;
+  const groundT=se.mountH/-dir.z,roomT=roomRayClip(se.x,se.y,dir.x,dir.y,groundT);
+  let t=roomT,surface=roomT<groundT-1e-7?'room':'ground';
+  if(showWalls&&svgData&&svgData.walls&&svgData.walls.length){
+    const wh=Math.max(0.1,wallHeight||H);
+    for(const w of svgData.walls){
+      const ix=se.x+dir.x*t,iy=se.y+dir.y*t,u=segCross(se.x,se.y,ix,iy,w.x1,w.y1,w.x2,w.y2);
+      if(u!==null){
+        const wallT=t*u,beamZ=se.mountH+dir.z*wallT;
+        if(beamZ>=-1e-6&&wh>=beamZ-1e-6&&wallT<t){t=wallT;surface='wall';}
+      }
+    }
+  }
+  return {x:se.x+dir.x*t,y:se.y+dir.y*t,z:se.mountH+dir.z*t,t,dir,surface};
+}
+// 锥体边界射线（方位角 azimuth、半角固定为 coneHalfAngle）的交点
+function coneBoundaryHitRaw(se,baseR,azimuth){
+  return coneRayHit(se,coneRayDirection(se,baseR,azimuth));
+}
+// 锥内任意射线方向：alpha=0 沿锥轴，alpha=coneHalfAngle 即边界。
+// 采样锥体内部（不只是边界）是正确绘制"越墙/绕墙"范围的关键——
+// 某些方位角的边界射线被墙挡住，但更陡的内部射线会从墙上方越过打到墙后地面。
+function coneInteriorDirection(s,r,azimuth,alpha){
+  const axis=sensorAxis(s);
+  const ref=Math.abs(axis.z)<0.95?{x:0,y:0,z:1}:{x:1,y:0,z:0};
+  let ux=ref.y*axis.z-ref.z*axis.y,uy=ref.z*axis.x-ref.x*axis.z,uz=ref.x*axis.y-ref.y*axis.x;
+  const ul=Math.hypot(ux,uy,uz)||1;ux/=ul;uy/=ul;uz/=ul;
+  const vx=axis.y*uz-axis.z*uy,vy=axis.z*ux-axis.x*uz,vz=axis.x*uy-axis.y*ux;
+  const ct=Math.cos(alpha),st=Math.sin(alpha),ca=Math.cos(azimuth),sa=Math.sin(azimuth);
+  const d={x:axis.x*ct+(ux*ca+vx*sa)*st,y:axis.y*ct+(uy*ca+vy*sa)*st,z:axis.z*ct+(uz*ca+vz*sa)*st};
+  const len=Math.hypot(d.x,d.y,d.z)||1;return {x:d.x/len,y:d.y/len,z:d.z/len};
+}
 function topCoveragePath(se,baseR,segments=96){
   if(!(baseR>0)) return '';
   const pts=[];
   for(let i=0;i<segments;i++){
-    const a=i/segments*Math.PI*2;
-    const r=reachRadius(se,baseR,a);
-    pts.push([se.x+Math.cos(a)*r,se.y+Math.sin(a)*r]);
+    const hit=coneBoundaryHit(se,baseR,i/segments*Math.PI*2);
+    if(hit) pts.push([hit.x,hit.y]);
   }
-  return pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(4)} ${p[1].toFixed(4)}`).join(' ')+' Z';
+  return pts.length>2 ? pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(4)} ${p[1].toFixed(4)}`).join(' ')+' Z' : '';
+}
+// 2D 凸包（Andrew 单调链），返回逆时针外轮廓点
+function convexHull(pts){
+  if(pts.length<3) return pts.slice();
+  const p=pts.slice().sort((a,b)=>a.u-b.u||a.v-b.v);
+  const cross=(o,a,b)=>(a.u-o.u)*(b.v-o.v)-(a.v-o.v)*(b.u-o.u);
+  const lower=[];
+  for(const q of p){ while(lower.length>=2 && cross(lower[lower.length-2],lower[lower.length-1],q)<=0) lower.pop(); lower.push(q); }
+  const upper=[];
+  for(let i=p.length-1;i>=0;i--){ const q=p[i]; while(upper.length>=2 && cross(upper[upper.length-2],upper[upper.length-1],q)<=0) upper.pop(); upper.push(q); }
+  lower.pop(); upper.pop();
+  const hull=lower.concat(upper);
+  // 移除共线冗余顶点（含闭合处），保证轮廓只保留真角点，避免墙面上出现多余共线点
+  const out=[], n=hull.length;
+  for(let i=0;i<n;i++){
+    const a=hull[(i-1+n)%n], b=hull[i], c=hull[(i+1)%n];
+    if(Math.abs(cross(a,b,c))>1e-9) out.push(b);
+  }
+  return out.length>=3?out:hull;
+}
+// 立面(前/侧)探测范围轮廓构造 —— "墙面撞点叠加后汇聚到传感器"的极坐标包络法。
+//
+// 为什么不用凸包：3D 探测锥被墙体裁剪后投影到剖面，真实形状常常是**非凸**的。
+// 典型情形是"不到头的墙"：某些方位角的射线打到墙面（近而高 v 小），另一些方位角
+// 从墙侧绕过去打到墙后地面（远而低 v=H）。剖面上的真实轮廓因此带台阶/凹陷，
+// 凸包会把凹陷填平、直接把 apex 连到最远的地面点，墙面撞点被整个吞掉。
+//
+// 本实现的思路（对应用户的"叠加后汇聚到传感器"）：
+//   1. 采样**整个 3D 探测区域**而不只是锥体边界：方位角 azimuth × 锥内极角
+//      alpha ∈ [0, coneHalfAngle]。采样内部射线是捕捉"越墙/绕墙"的关键。
+//   2. 每条射线求真实 3D 交点（coneRayHit，保留撞点 z），投影到剖面 (u, v)：
+//      撞地面 v=H；撞房间边界或内墙 v=H-hit.z（墙面撞点真实高度）。
+//   3. 所有投影点转成**以 apex（传感器在剖面上的位置）为原点的极坐标**，
+//      按极角分 bin，每个 bin 只保留半径最大的点 → 得到"从传感器看出去"的包络。
+//      这一步天然支持非凸：不同极角各自取最远，凹陷/台阶得以保留。
+//   4. 按极角顺序输出包络点，首尾即极角最小/最大处，与 apex 共同构成扇形。
+// 采样上千条射线偏重，故按 (传感器状态 + 半径 + 视图 + 房间 + 墙体) 缓存结果：
+// 拖动某个传感器时其余传感器的轮廓可直接命中缓存。
+const elevCache=new Map();
+function elevationConePoints(se,r,horiz){
+  const wMax=horiz==='x'?L:W;
+  const c=horiz==='x'?se.x:se.y;
+  const apex={u:c,v:H-se.mountH};
+  const theta=coneHalfAngle(se,r);
+  if(!(r>0)||!(theta>0)) return [apex];
+  const ck=`${se.x},${se.y},${se.mountH},${se.angleX||0},${se.angleY||0},${r},${horiz},${L},${W},${H},${wallKey()}`;
+  const cached=elevCache.get(ck);
+  if(cached) return cached;
+  const result=elevationConePointsCalc(se,r,horiz,wMax,c,apex,theta);
+  if(elevCache.size>3000) elevCache.clear(); // 防止长时间编辑后无限增长
+  elevCache.set(ck,result);
+  return result;
+}
+function elevationConePointsCalc(se,r,horiz,wMax,c,apex,theta){
+  // 1. 采样整个 3D 探测锥体（方位角 × 锥内极角）
+  const NAZ=144, NAL=12;
+  const samples=[];
+  let touchL=false, touchR=false;
+  for(let i=0;i<NAZ;i++){
+    const azimuth=i/NAZ*Math.PI*2;
+    for(let j=0;j<=NAL;j++){
+      // j=0 → 沿锥轴；j=NAL → 锥体边界。两端都取，保证轴线与边界都覆盖
+      const alpha=theta*j/NAL;
+      const hit=coneRayHit(se,coneInteriorDirection(se,r,azimuth,alpha));
+      if(!hit) continue;
+      const u=horiz==='x'?hit.x:hit.y;
+      // 撞地面 v=H；撞房间边界或内墙 v=H-hit.z（保留真实撞墙高度）
+      const v=(hit.surface==='ground')?H:(H-hit.z);
+      samples.push({u,v});
+      if(u<=1e-6) touchL=true;
+      else if(u>=wMax-1e-6) touchR=true;
+    }
+  }
+  if(samples.length===0) return [apex];
+  // 撞到端墙时把该侧墙脚纳入采样，让包络底边沿地面延伸到端（保持"贴地"观感）
+  if(touchL) samples.push({u:0,v:H});
+  if(touchR) samples.push({u:wMax,v:H});
+  // 2. 以 apex 为原点的极坐标包络：每个极角 bin 只留半径最大的点
+  const BINS=288;
+  const best=new Float64Array(BINS).fill(-1);
+  const bestPt=new Array(BINS).fill(null);
+  for(const s of samples){
+    const du=s.u-apex.u, dv=s.v-apex.v;
+    const radius=Math.hypot(du,dv);
+    if(radius<1e-9) continue;
+    let bin=Math.floor((Math.atan2(du,dv)+Math.PI)/(2*Math.PI)*BINS);
+    if(bin<0) bin=0; else if(bin>=BINS) bin=BINS-1;
+    if(radius>best[bin]){ best[bin]=radius; bestPt[bin]=s; }
+  }
+  // 3. 收集非空 bin（该方向没有探测射线时 bin 保持空缺）
+  const pts=[];
+  for(let i=0;i<BINS;i++) if(bestPt[i]) pts.push(bestPt[i]);
+  if(pts.length<3){
+    // 探测范围极窄：补一个微小张角，避免出现退化的零面积多边形
+    return [apex,{u:c-0.01,v:H},{u:c+0.01,v:H}];
+  }
+  // 4. 轮廓 = apex（传感器所在的扇形顶点）+ 按极角排序的包络弧边。
+  //    必须显式带上 apex：包络点几乎都落在地面/墙面上，少了 apex 多边形会退化成一条折线。
+  return [apex].concat(simplifyPath(pts));
+}
+// 折线简化：剔除近似共线的冗余顶点（叉积阈值 eps，单位 米²），
+// 把上百个采样点压到几十个，SVG 更小、渲染更快，同时保留真正的角点（墙面撞点、墙脚）。
+function simplifyPath(pts,eps=0.015){
+  if(pts.length<3) return pts.slice();
+  const out=[pts[0]];
+  for(let i=1;i<pts.length-1;i++){
+    const a=out[out.length-1],b=pts[i],c=pts[i+1];
+    const cross=(b.u-a.u)*(c.v-a.v)-(b.v-a.v)*(c.u-a.u);
+    if(Math.abs(cross)>eps) out.push(b);
+  }
+  out.push(pts[pts.length-1]);
+  return out;
+}
+function elevationConePolygon(se,r,horiz){
+  return elevationConePoints(se,r,horiz).map(p=>`${p.u.toFixed(4)},${p.v.toFixed(4)}`).join(' ');
 }
 function renderTop(){
   let s = `<rect x="0" y="0" width="${L}" height="${W}" fill="#11161d" stroke="#3a4452" stroke-width="0.04"/>`;
@@ -1239,7 +1469,7 @@ function renderTop(){
   }
   // 实际地面探测轮廓：按墙体遮挡和房间边界实时裁剪，不再显示穿墙的理想整圆。
   sensors.forEach(se=>{
-    const {rm,rp}=radii(se);
+    const {rm,rp,rf}=radii(se);
     if(state.showMotion && rm>0){
       const d=topCoveragePath(se,rm);
       s+=`<path d="${d}" fill="rgba(255,80,80,0.05)" stroke="#ff6b6b" stroke-width="0.035" stroke-dasharray="0.18 0.12" stroke-linejoin="round"/>`;
@@ -1247,6 +1477,10 @@ function renderTop(){
     if(state.showPresence && rp>0){
       const d=topCoveragePath(se,rp);
       s+=`<path d="${d}" fill="rgba(255,170,60,0.07)" stroke="#ffae3b" stroke-width="0.035" stroke-linejoin="round"/>`;
+    }
+    if(state.showFusion && rf>0){
+      const d=topCoveragePath(se,rf);
+      s+=`<path d="${d}" fill="rgba(111,195,255,0.06)" stroke="#6fc3ff" stroke-width="0.045" stroke-dasharray="0.12 0.08" stroke-linejoin="round"/>`;
     }
   });
   sensors.forEach(se=>{
@@ -1397,7 +1631,8 @@ topSvg.addEventListener('wheel', e=>{
 function addSensorAt(x,y){
   x=clamp(x,0,L); y=clamp(y,0,W);
   const id=uid++;
-  const s={ id, name:`传感器${id}`, x, y, mountH:2.8, motion:true, presence:true };
+  const p=baseSensorParams();
+  const s={id,name:`传感器${id}`,x,y,mountH:Math.min(p.h,H),motion:true,presence:true,motionDiameter:p.motionD,presenceDiameter:p.presenceD,fusionDiameter:p.fusionD,angleX:p.angleX,angleY:p.angleY};
   sensors.push(s); state.selected=s.id; state.selectedPerson=null; renderAll();
 }
 function addPersonAt(x,y){
@@ -1410,14 +1645,32 @@ function addPersonAt(x,y){
 // ---------- 立面视图 (前/侧) ----------
 function renderElevation(svg, horiz){
   const wMax = horiz==='x' ? L : W;
-  let minX=0, maxX=wMax;
+  // viewBox 跟随 polygon 实际顶点的 u/v 范围自适应，不再固定为整个房间高度，
+  // 否则 H≫mountH（如 H=9, mountH=2.75）时 polygon 会被严重压缩到一小区块，
+  // 用户看不到清晰的撞墙四边形结构。
+  let minX=0, maxX=wMax, minY=H, maxY=0;
+  let hasPoly=false;
   sensors.forEach(s=>{
-    const {rm,rp}=radii(s); const r=Math.max(rm,rp);
-    const c = horiz==='x' ? s.x : s.y;
-    minX=Math.min(minX, c-r); maxX=Math.max(maxX, c+r);
+    const {rm,rp,rf}=radii(s);
+    [rm,rp,rf].filter(r=>r>0).forEach(r=>{
+      elevationConePoints(s,r,horiz).forEach(p=>{
+        hasPoly=true;
+        if(p.u<minX) minX=p.u;
+        if(p.u>maxX) maxX=p.u;
+        if(p.v<minY) minY=p.v;
+        if(p.v>maxY) maxY=p.v;
+      });
+    });
   });
-  const m=1;
-  const vbX=minX-m, vbW=(maxX-minX)+2*m, vbY=-m, vbH=H+2*m;
+  if(!hasPoly){ minX=0; maxX=wMax; minY=0; maxY=H; }
+  // 始终让地面 (v=H) 可见，保证底部贴地参照线在视野内
+  if(maxY < H) maxY = H;
+  // 始终让房间左右边界 (u=0, u=wMax) 可见，保证撞墙端点不超出视野
+  if(minX > 0) minX = 0;
+  if(maxX < wMax) maxX = wMax;
+  const padX = 0.3, padY = 0.3;
+  const vbX=minX-padX, vbW=(maxX-minX)+2*padX;
+  const vbY=minY-padY, vbH=(maxY-minY)+2*padY;
   let s='';
   s+=`<rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="#11161d"/>`;
   s+=`<rect x="0" y="0" width="${wMax}" height="${H}" fill="none" stroke="#3a4452" stroke-width="0.03"/>`;
@@ -1434,13 +1687,16 @@ function renderElevation(svg, horiz){
   }
   sensors.forEach(se=>{
     const c = horiz==='x' ? se.x : se.y;
-    const {rm,rp}=radii(se);
+    const {rm,rp,rf}=radii(se);
     const apexY = H - se.mountH;
     if(state.showMotion && rm>0){
-      s+=`<polygon points="${c-rm},${H} ${c+rm},${H} ${c},${apexY}" fill="rgba(255,80,80,0.07)" stroke="#ff6b6b" stroke-width="0.025" stroke-dasharray="0.15 0.1"/>`;
+      s+=`<polygon points="${elevationConePolygon(se,rm,horiz)}" fill="rgba(255,80,80,0.07)" stroke="#ff6b6b" stroke-width="0.025" stroke-dasharray="0.15 0.1"/>`;
     }
     if(state.showPresence && rp>0){
-      s+=`<polygon points="${c-rp},${H} ${c+rp},${H} ${c},${apexY}" fill="rgba(255,170,60,0.09)" stroke="#ffae3b" stroke-width="0.025"/>`;
+      s+=`<polygon points="${elevationConePolygon(se,rp,horiz)}" fill="rgba(255,170,60,0.09)" stroke="#ffae3b" stroke-width="0.025"/>`;
+    }
+    if(state.showFusion && rf>0){
+      s+=`<polygon points="${elevationConePolygon(se,rf,horiz)}" fill="rgba(111,195,255,0.06)" stroke="#6fc3ff" stroke-width="0.03" stroke-dasharray="0.12 0.08"/>`;
     }
     const sel = se.id===state.selected;
     s+=`<circle data-sensor-id="${se.id}" cx="${c}" cy="${apexY}" r="${sel?0.18:0.12}" fill="${sel?'#7ee787':'#58a6ff'}" stroke="#fff" stroke-width="0.015" style="cursor:pointer"/>`;
@@ -1466,9 +1722,10 @@ function renderElevation(svg, horiz){
     s+=`<line x1="${c}" y1="${shY+h*0.02}" x2="${c+armLen}" y2="${H-h*0.45}" stroke="${col}" stroke-width="0.04" stroke-linecap="round"/>`;
     // 头
     s+=`<circle cx="${c}" cy="${headCy}" r="${headR}" fill="${col}"/>`;
-    // 从地面起的运动/存在扫描覆盖段
+    // 人物身体上的运动 / 存在 / 融合扫描高度标记
     if(sc.mH>0){ const my=H-Math.min(h,sc.mH); s+=`<rect x="${c-sw/2}" y="${my}" width="${sw}" height="${(H-my).toFixed(3)}" fill="rgba(46,160,67,0.30)"/>`; }
     if(state.showPresence && sc.pH>0){ const py=H-Math.min(h,sc.pH); s+=`<line x1="${c-sw/2-0.015}" y1="${py}" x2="${c+sw/2+0.015}" y2="${py}" stroke="#ffae3b" stroke-width="0.02"/>`; }
+    if(state.showFusion && sc.fH>0){ const fy=H-Math.min(h,sc.fH); s+=`<line x1="${c-sw/2-0.025}" y1="${fy}" x2="${c+sw/2+0.025}" y2="${fy}" stroke="#6fc3ff" stroke-width="0.025" stroke-dasharray="0.05 0.03"/>`; }
     s+=`<text x="${c}" y="${headTopY-0.12}" font-size="0.18" fill="#c9d1d9" text-anchor="middle">${escText(personName(p))}</text>`;
     s+=`</g>`;
   });
@@ -1619,12 +1876,13 @@ function createPerson3D(p){
   // 脚
   [[-0.06,0.02,0.06],[0.06,0.02,0.06]].forEach(c=>{ const f=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.04,0.16),matBody); f.position.set(c[0],c[1],c[2]); f.userData.body=true; group.add(f); });
   sensorGroup.add(group);
-  // 扫描范围包膜（运动=绿、存在=橙，单位高度 1，按需缩放）
+  // 扫描范围包膜（运动=绿、存在=橙、融合=青，单位高度 1，按需缩放）
   const envM=new THREE.Mesh(new THREE.CylinderGeometry(0.26,0.26,1,24,1,true), new THREE.MeshBasicMaterial({color:0x2ea043,transparent:true,opacity:0.18,depthWrite:false}));
   const envP=new THREE.Mesh(new THREE.CylinderGeometry(0.30,0.30,1,24,1,true), new THREE.MeshBasicMaterial({color:0xffae3b,transparent:true,opacity:0.18,depthWrite:false}));
-  envM.userData.pid=p.id; envP.userData.pid=p.id;
-  sensorGroup.add(envM); sensorGroup.add(envP);
-  return {group, envM, envP};
+  const envF=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,1,24,1,true), new THREE.MeshBasicMaterial({color:0x6fc3ff,transparent:true,opacity:0.18,depthWrite:false}));
+  envM.userData.pid=p.id;envP.userData.pid=p.id;envF.userData.pid=p.id;
+  sensorGroup.add(envM);sensorGroup.add(envP);sensorGroup.add(envF);
+  return {group,envM,envP,envF};
 }
 
 function createSensor3D(se){
@@ -1648,109 +1906,98 @@ function createSensor3D(se){
     group.add(lateral, farRing, nearRing, farDisk, nearDisk, guide, angleArc);
     return {lateral, farRing, nearRing, farDisk, nearDisk, guide, angleArc};
   }
-  const M=layer(0xff6b6b), P=layer(0xffae3b);
+  const M=layer(0xff6b6b), P=layer(0xffae3b), F=layer(0x6fc3ff);
   sensorGroup.add(group);
-  return {group, sphere:sph, axis, M, P};
+  return {group, sphere:sph, axis, M, P, F};
 }
 
-// 传感器到某方向(角度 ang)在地面上的最大可达距离：考虑墙体遮挡 + 房间边界
-function reachRadius(se, baseR, ang){
-  let r = baseR;
-  if(showWalls && svgData && svgData.walls && svgData.walls.length){
-    const ex = se.x + Math.cos(ang)*baseR, ey = se.y + Math.sin(ang)*baseR;
-    const wh = Math.max(0.1, wallHeight||H);
-    for(const w of svgData.walls){
-      const t = segCross(se.x, se.y, ex, ey, w.x1, w.y1, w.x2, w.y2);
-      if(t!==null && t>1e-4 && t<1-1e-6){
-        const dWall = t*baseR;
-        const beamH = se.mountH*(1 - t);   // 主瓣在该墙处离地高度
-        if(wh >= beamH - 1e-6) r = Math.min(r, dWall);  // 墙阻断 → 剪裁到墙处
-      }
-    }
-  }
-  return Math.min(r, roomClip(se, ang, baseR));
-}
-function roomClip(se, ang, r){
-  const dx=Math.cos(ang), dy=Math.sin(ang);
-  let tmin=Infinity;
-  if(dx>1e-9) tmin=Math.min(tmin,(L-se.x)/dx); else if(dx<-1e-9) tmin=Math.min(tmin,(0-se.x)/dx);
-  if(dy>1e-9) tmin=Math.min(tmin,(W-se.y)/dy); else if(dy<-1e-9) tmin=Math.min(tmin,(0-se.y)/dy);
-  return isFinite(tmin) ? Math.min(r, Math.max(0,tmin)) : r;
+// 水平射线在房间边界内的最大参数 t；limit 可为地面交点参数或 Infinity。
+function roomRayClip(x,y,dx,dy,limit=Infinity){
+  let t=Math.max(0,limit);
+  if(dx>1e-9) t=Math.min(t,(L-x)/dx); else if(dx<-1e-9) t=Math.min(t,(0-x)/dx);
+  if(dy>1e-9) t=Math.min(t,(W-y)/dy); else if(dy<-1e-9) t=Math.min(t,(0-y)/dy);
+  return Math.max(0,t);
 }
 function wallKey(){
   if(!svgData || !svgData.walls) return 'none';
   return svgData.walls.length+'_'+wallHeight.toFixed(2)+'_'+showWalls;
 }
-// 锥体（frustum）几何：传感器在挂高处为顶点，沿竖直中心轴向下投射。
-// 半张角 θ = atan(r / mountH)，使地面半径恰为规格半径 r；近裁剪面距顶点 near，远裁剪面为地面截面。
-// 墙体遮挡 / 房间边界由 reachRadius 实时裁剪。
-function makeFrustumGeo(r, mountH, se, near){
-  const N=48, nearR=near*(r/mountH), nearY=mountH-near;
-  const verts=[], idx=[];
+// 倾斜圆锥（frustum）几何。参考直径是 2.8m 挂高下的标称范围，先反算固定视场角，再与实际房间表面求交。
+// 所有边界点均由 coneRayDirection / coneBoundaryHit 生成，与 2D、覆盖率和人物扫描使用同一物理模型。
+function worldToSensorLocal(se,p){ return [p.x-se.x,p.z,p.y-se.y]; }
+function nearBoundaryPoint(se,r,near,azimuth){
+  const dir=coneRayDirection(se,r,azimuth),theta=coneHalfAngle(se,r);
+  const t=near/Math.max(1e-6,Math.cos(theta));
+  return {x:se.x+dir.x*t,y:se.y+dir.y*t,z:se.mountH+dir.z*t};
+}
+function axisBoundaryHit(se){
+  const axis=sensorAxis(se),groundT=axis.z<-1e-7?se.mountH/-axis.z:Infinity;
+  let t=roomRayClip(se.x,se.y,axis.x,axis.y,groundT);
+  if(!isFinite(t)) t=groundT;
+  if(!isFinite(t)) return {x:se.x,y:se.y,z:se.mountH};
+  if(showWalls&&svgData&&svgData.walls){
+    const wh=Math.max(0.1,wallHeight||H);
+    for(const w of svgData.walls){
+      const ex=se.x+axis.x*t,ey=se.y+axis.y*t,u=segCross(se.x,se.y,ex,ey,w.x1,w.y1,w.x2,w.y2);
+      if(u!==null){const wt=t*u,z=se.mountH+axis.z*wt;if(z>=-1e-6&&wh>=z-1e-6)t=Math.min(t,wt);}
+    }
+  }
+  return {x:se.x+axis.x*t,y:se.y+axis.y*t,z:Math.max(0,se.mountH+axis.z*t)};
+}
+function makeFrustumGeo(r,mountH,se,near){
+  const N=48,verts=[],idx=[];
   for(let i=0;i<N;i++){
-    const a0=i/N*Math.PI*2, a1=(i+1)/N*Math.PI*2;
-    const r0=reachRadius(se,r,a0), r1=reachRadius(se,r,a1);
-    // 若被墙/房间边界提前截断，终点仍位于原锥形射线上，而不是错误地落到地面。
-    const y0=mountH*(1-r0/r), y1=mountH*(1-r1/r);
-    const p0n=[Math.cos(a0)*nearR, nearY, Math.sin(a0)*nearR];
-    const p1n=[Math.cos(a1)*nearR, nearY, Math.sin(a1)*nearR];
-    const p0f=[Math.cos(a0)*r0, y0, Math.sin(a0)*r0];
-    const p1f=[Math.cos(a1)*r1, y1, Math.sin(a1)*r1];
-    const base=verts.length/3;
-    verts.push(p0n[0],p0n[1],p0n[2], p1n[0],p1n[1],p1n[2], p1f[0],p1f[1],p1f[2], p0f[0],p0f[1],p0f[2]);
-    idx.push(base, base+1, base+2, base, base+2, base+3);
+    const a0=i/N*Math.PI*2,a1=(i+1)/N*Math.PI*2;
+    const n0=worldToSensorLocal(se,nearBoundaryPoint(se,r,near,a0));
+    const n1=worldToSensorLocal(se,nearBoundaryPoint(se,r,near,a1));
+    const h0=coneBoundaryHit(se,r,a0)||nearBoundaryPoint(se,r,near,a0);
+    const h1=coneBoundaryHit(se,r,a1)||nearBoundaryPoint(se,r,near,a1);
+    const f0=worldToSensorLocal(se,h0);
+    const f1=worldToSensorLocal(se,h1);
+    const base=verts.length/3;verts.push(...n0,...n1,...f1,...f0);idx.push(base,base+1,base+2,base,base+2,base+3);
   }
-  const g=new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
-  g.setIndex(idx); g.computeVertexNormals();
-  return g;
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));g.setIndex(idx);g.computeVertexNormals();return g;
 }
-function makeNearRingGeo(nearR, nearY){ // 近裁剪面环
-  const N=48, verts=[];
-  for(let i=0;i<N;i++){ const a=i/N*Math.PI*2; verts.push(Math.cos(a)*nearR, nearY, Math.sin(a)*nearR); }
-  const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3)); return g;
+function makeNearRingGeo(se,r,near){
+  const N=48,verts=[];for(let i=0;i<N;i++)verts.push(...worldToSensorLocal(se,nearBoundaryPoint(se,r,near,i/N*Math.PI*2)));
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));return g;
 }
-function makeFilledGeo(r, se){ // 远裁剪面：中心轴落地处的检测足迹，平面保持在地面 y=0
-  const N=48, verts=[0,0,0];
+function makeFilledGeo(r,se){
+  const N=48,verts=[...worldToSensorLocal(se,axisBoundaryHit(se))];
   for(let i=0;i<=N;i++){
-    const a=i/N*Math.PI*2, rr=reachRadius(se,r,a);
-    verts.push(Math.cos(a)*rr,0,Math.sin(a)*rr);
+    const hit=coneBoundaryHit(se,r,i/N*Math.PI*2);
+    if(hit)verts.push(...worldToSensorLocal(se,hit));else verts.push(...worldToSensorLocal(se,axisBoundaryHit(se)));
   }
-  const idx=[]; for(let i=1;i<=N;i++) idx.push(0, i, i+1);
-  const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+  const idx=[];for(let i=1;i<=N;i++)idx.push(0,i,i+1);
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));g.setIndex(idx);g.computeVertexNormals();return g;
 }
-function makeNearDiskGeo(nearR, nearY){ // 近裁剪面圆盘
-  const N=48, verts=[0,nearY,0];
-  for(let i=0;i<=N;i++){ const a=i/N*Math.PI*2; verts.push(Math.cos(a)*nearR, nearY, Math.sin(a)*nearR); }
-  const idx=[]; for(let i=1;i<=N;i++) idx.push(0, i, i+1);
-  const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3)); g.setIndex(idx); return g;
+function makeNearDiskGeo(se,r,near){
+  const axis=sensorAxis(se),center={x:se.x+axis.x*near,y:se.y+axis.y*near,z:se.mountH+axis.z*near};
+  const N=48,verts=[...worldToSensorLocal(se,center)];for(let i=0;i<=N;i++)verts.push(...worldToSensorLocal(se,nearBoundaryPoint(se,r,near,i/N*Math.PI*2)));
+  const idx=[];for(let i=1;i<=N;i++)idx.push(0,i,i+1);
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));g.setIndex(idx);return g;
 }
-function makeFovGuideGeo(r, mountH, se){ // 四条母线：直观标出锥体边界和中心轴关系
-  const verts=[];
-  [0, Math.PI/2, Math.PI, Math.PI*1.5].forEach(a=>{
-    const rr=reachRadius(se,r,a), y=mountH*(1-rr/r);
-    verts.push(0,mountH,0, Math.cos(a)*rr,y,Math.sin(a)*rr);
+function makeFovGuideGeo(r,mountH,se){
+  const verts=[];[0,Math.PI/2,Math.PI,Math.PI*1.5].forEach(a=>{
+    const hit=coneBoundaryHit(se,r,a)||axisBoundaryHit(se);verts.push(0,mountH,0,...worldToSensorLocal(se,hit));
   });
-  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3)); return g;
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));return g;
 }
-function makeFovArcGeo(r, mountH){ // 过中心轴的剖面张角弧（显示完整 FOV）
-  const theta=Math.atan2(r,mountH), arcR=Math.min(1.1,Math.hypot(r,mountH)*0.22), N=32, verts=[];
+function makeFovArcGeo(r,mountH,se){
+  const axis=sensorAxis(se),theta=coneHalfAngle(se,r),arcR=Math.min(1.1,Math.hypot(r,mountH)*0.22),N=32,verts=[];
+  const horiz=Math.hypot(axis.x,axis.y),hx=horiz>1e-8?axis.x/horiz:1,hy=horiz>1e-8?axis.y/horiz:0;
+  const tilt=Math.atan2(horiz,-axis.z);
   for(let i=0;i<=N;i++){
-    const a=-theta+(2*theta*i/N);
-    verts.push(Math.sin(a)*arcR, mountH-Math.cos(a)*arcR, 0);
+    const a=tilt-theta+2*theta*i/N,hr=Math.sin(a)*arcR;
+    verts.push(hx*hr,mountH-Math.cos(a)*arcR,hy*hr);
   }
-  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3)); return g;
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));return g;
 }
-function makeRingGeo(r, se){
-  const N=72; const verts=[];
-  // 远裁剪面固定垂直于中心轴并落在地面；其轮廓同时表达经墙体裁剪后的地面足迹。
-  for(let i=0;i<N;i++){
-    const a=i/N*Math.PI*2, rr=reachRadius(se,r,a);
-    verts.push(Math.cos(a)*rr,0,Math.sin(a)*rr);
+function makeRingGeo(r,se){
+  const N=72,verts=[];for(let i=0;i<N;i++){
+    const hit=coneBoundaryHit(se,r,i/N*Math.PI*2)||axisBoundaryHit(se);verts.push(...worldToSensorLocal(se,hit));
   }
-  const g=new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
-  return g;
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));return g;
 }
 // 更新单个传感器某层（运动/存在）的锥体：含侧向锥面、近/远裁剪面环与盘，随图层开关显隐
 function updateLayer(o, se, r, color, showFlag){
@@ -1759,16 +2006,16 @@ function updateLayer(o, se, r, color, showFlag){
   const show = showFlag && r>0 && se.mountH>0;
   o.lateral.visible=show; o.farRing.visible=show; o.nearRing.visible=show; o.farDisk.visible=show; o.nearDisk.visible=show; o.guide.visible=show; o.angleArc.visible=show;
   if(!show) return;
-  const nearR=near*(r/se.mountH), nearY=se.mountH-near;
-  const key = `${se.x.toFixed(2)}|${se.y.toFixed(2)}|${r.toFixed(2)}|${se.mountH.toFixed(2)}|${near.toFixed(3)}|${wallKey()}`;
+  const {angleX,angleY}=radii(se);
+  const key=`${se.x.toFixed(2)}|${se.y.toFixed(2)}|${r.toFixed(2)}|${se.mountH.toFixed(2)}|${near.toFixed(3)}|${angleX.toFixed(2)}|${angleY.toFixed(2)}|${wallKey()}`;
   if(o.lateral.userData.lastKey!==key){
     o.lateral.geometry.dispose(); o.lateral.geometry=makeFrustumGeo(r, se.mountH, se, near);
     o.farRing.geometry.dispose(); o.farRing.geometry=makeRingGeo(r, se);
-    o.nearRing.geometry.dispose(); o.nearRing.geometry=makeNearRingGeo(nearR, nearY);
+    o.nearRing.geometry.dispose(); o.nearRing.geometry=makeNearRingGeo(se, r, near);
     o.farDisk.geometry.dispose(); o.farDisk.geometry=makeFilledGeo(r, se);
-    o.nearDisk.geometry.dispose(); o.nearDisk.geometry=makeNearDiskGeo(nearR, nearY);
+    o.nearDisk.geometry.dispose(); o.nearDisk.geometry=makeNearDiskGeo(se, r, near);
     o.guide.geometry.dispose(); o.guide.geometry=makeFovGuideGeo(r, se.mountH, se);
-    o.angleArc.geometry.dispose(); o.angleArc.geometry=makeFovArcGeo(r, se.mountH);
+    o.angleArc.geometry.dispose(); o.angleArc.geometry=makeFovArcGeo(r, se.mountH, se);
     o.lateral.userData.lastKey=key; o.farRing.userData.lastKey=key; o.nearRing.userData.lastKey=key; o.farDisk.userData.lastKey=key; o.nearDisk.userData.lastKey=key; o.guide.userData.lastKey=key; o.angleArc.userData.lastKey=key;
   }
   const c=new THREE.Color(color);
@@ -1798,13 +2045,16 @@ function sync3D(){
     if(!o){ o=createSensor3D(se); sensorObjs.set(se.id,o); }
     o.sphere.position.set(se.x, se.mountH, se.y);
     o.sphere.material.color.setHex(se.id===state.selected?0x7ee787:0x58a6ff);
-    const {rm,rp}=radii(se);
+    const {rm,rp,rf}=radii(se);
     updateLayer(o.M, se, rm, 0xff6b6b, state.showMotion);
     updateLayer(o.P, se, rp, 0xffae3b, state.showPresence);
-    // 中心轴随挂高刷新
-    const axPos=o.axis.geometry.attributes.position;
-    axPos.setXYZ(0, 0, se.mountH, 0); axPos.setXYZ(1, 0, 0, 0); axPos.needsUpdate=true;
-    o.axis.position.set(se.x, 0, se.y);
+    updateLayer(o.F, se, rf, 0x6fc3ff, state.showFusion);
+    // 中心轴随挂高、倾斜角与墙体/房间裁剪实时刷新
+    const axisEnd=axisBoundaryHit(se),axPos=o.axis.geometry.attributes.position;
+    axPos.setXYZ(0,0,se.mountH,0);
+    axPos.setXYZ(1,axisEnd.x-se.x,axisEnd.z,axisEnd.y-se.y);
+    axPos.needsUpdate=true;
+    o.axis.position.set(se.x,0,se.y);
     o.axis.computeLineDistances();
   });
   sensorObjs.forEach((o,id)=>{
@@ -1819,16 +2069,18 @@ function sync3D(){
     o.group.rotation.y = p.heading||0;
     o.group.traverse(m=>{ if(m.isMesh && m.userData.body) m.material.color.setHex(p.id===state.selectedPerson?0x7ee787:0x9aa4b2); });
     const sc=scanHeights(p.x,p.y);
-    const mh=Math.min(p.height, sc.mH), ph=Math.min(p.height, sc.pH);
-    o.envM.visible = state.showMotion && mh>0.001;
-    o.envP.visible = state.showPresence && ph>0.001;
-    o.envM.scale.y = Math.max(0.001,mh); o.envM.position.set(p.x, mh/2, p.y);
-    o.envP.scale.y = Math.max(0.001,ph); o.envP.position.set(p.x, ph/2, p.y);
+    const mh=Math.min(p.height,sc.mH),ph=Math.min(p.height,sc.pH),fh=Math.min(p.height,sc.fH);
+    o.envM.visible=state.showMotion&&mh>0.001;
+    o.envP.visible=state.showPresence&&ph>0.001;
+    o.envF.visible=state.showFusion&&fh>0.001;
+    o.envM.scale.y=Math.max(0.001,mh);o.envM.position.set(p.x,mh/2,p.y);
+    o.envP.scale.y=Math.max(0.001,ph);o.envP.position.set(p.x,ph/2,p.y);
+    o.envF.scale.y=Math.max(0.001,fh);o.envF.position.set(p.x,fh/2,p.y);
   });
   personObjs.forEach((o,id)=>{
     if(!persons.find(p=>p.id===id)){
-      disposeObj(o.group); disposeObj(o.envM); disposeObj(o.envP);
-      sensorGroup.remove(o.group); sensorGroup.remove(o.envM); sensorGroup.remove(o.envP);
+      disposeObj(o.group);disposeObj(o.envM);disposeObj(o.envP);disposeObj(o.envF);
+      sensorGroup.remove(o.group);sensorGroup.remove(o.envM);sensorGroup.remove(o.envP);sensorGroup.remove(o.envF);
       personObjs.delete(id);
     }
   });
@@ -1962,11 +2214,13 @@ function updateLabelPositions(){
   };
   sensorLabelDivs.forEach((d,id)=>{
     const s=sensors.find(x=>x.id===id); if(!s) return;
-    const {rm,rp}=radii(s);
-    const am = rm>0 ? (2*Math.atan2(rm, s.mountH)*180/Math.PI).toFixed(0) : 0;
-    const ap = rp>0 ? (2*Math.atan2(rp, s.mountH)*180/Math.PI).toFixed(0) : 0;
+    const {rm,rp,rf}=radii(s);
+    const am=rm>0?(2*Math.atan2(rm,s.mountH)*180/Math.PI).toFixed(0):0;
+    const ap=rp>0?(2*Math.atan2(rp,s.mountH)*180/Math.PI).toFixed(0):0;
+    const af=rf>0?(2*Math.atan2(rf,s.mountH)*180/Math.PI).toFixed(0):0;
+    const {angleX,angleY}=radii(s);
     d.innerHTML=`${escText(sensorName(s))}  (${s.x.toFixed(1)}, ${s.mountH.toFixed(1)}, ${s.y.toFixed(1)})<br>`+
-      `<span style="opacity:.75;font-size:10px">张角 运动${am}° / 存在${ap}°</span>`;
+      `<span style="opacity:.75;font-size:10px">张角 运动${am}° / 存在${ap}° / 融合${af}° · X ${angleX.toFixed(0)}° / Y ${angleY.toFixed(0)}°</span>`;
     place(d, s.x, s.mountH, s.y);
   });
   personLabelDivs.forEach((d,id)=>{
@@ -2026,26 +2280,24 @@ function segCross(ax,ay,bx,by,cx,cy,dx,dy){
   if(t>1e-6 && t<1-1e-6 && u>=-1e-9 && u<=1+1e-9) return t;
   return null;
 }
-// 传感器(sx,sy,挂高) 到地面点(px,py) 的视线是否被墙体遮挡（墙高足够时阻挡）
-function isOccluded(sx,sy,mountH,px,py){
-  const wh=Math.max(0.1, wallHeight||H);
-  const walls=(svgData&&svgData.walls)||[];
+// 传感器到任意空间点(px,py,pz)的视线是否被墙体遮挡（墙高足够时阻挡）。
+function isOccluded(sx,sy,mountH,px,py,pz=0){
+  if(!showWalls) return false;
+  const wh=Math.max(0.1,wallHeight||H),walls=(svgData&&svgData.walls)||[];
   for(const w of walls){
     const t=segCross(sx,sy,px,py,w.x1,w.y1,w.x2,w.y2);
-    if(t!==null){ const z=mountH*(1-t); if(wh>=z-1e-6) return true; }
+    if(t!==null){const z=mountH+(pz-mountH)*t;if(wh>=z-1e-6)return true;}
   }
   return false;
 }
-function pointCovered(s, r, px, py, mountH){
-  const d=Math.hypot(px-s.x, py-s.y);
-  if(d>r) return false;
-  if(isOccluded(s.x,s.y,mountH,px,py)) return false;
-  return true;
+function pointCovered(s,r,px,py){
+  if(!pointInSensorCone(s,r,px,py,0)) return false;
+  return !isOccluded(s.x,s.y,s.mountH,px,py,0);
 }
 function computeCoverage(){
   const step=Math.max(0.2, Math.min(L,W)/150);
   const nx=Math.max(1,Math.ceil(L/step)), ny=Math.max(1,Math.ceil(W/step));
-  let covM=0, covP=0; const total=nx*ny;
+  let covM=0, covP=0, covF=0; const total=nx*ny;
   const cc=document.createElement('canvas'); cc.width=nx; cc.height=ny;
   const bc=document.createElement('canvas'); bc.width=nx; bc.height=ny;
   const ac=document.createElement('canvas'); ac.width=nx; ac.height=ny;
@@ -2055,23 +2307,25 @@ function computeCoverage(){
     const y=(iy+0.5)/ny*W;
     for(let ix=0;ix<nx;ix++){
       const x=(ix+0.5)/nx*L;
-      let m=false,p=false;
+      let m=false,p=false,f=false;
       for(const s of sensors){
-        const {rm,rp}=radii(s); const mh=s.mountH;
-        if(rm>0 && pointCovered(s,rm,x,y,mh)) m=true;
-        if(rp>0 && pointCovered(s,rp,x,y,mh)) p=true;
+        const {rm,rp,rf}=radii(s);
+        if(rm>0&&pointCovered(s,rm,x,y))m=true;
+        if(rp>0&&pointCovered(s,rp,x,y))p=true;
+        if(rf>0&&pointCovered(s,rf,x,y))f=true;
       }
-      if(m) covM++; if(p) covP++;
+      if(m) covM++; if(p) covP++; if(f) covF++;
       const idx=(iy*nx+ix)*4;
       if(m){ cimg.data[idx]=46; cimg.data[idx+1]=160; cimg.data[idx+2]=67; cimg.data[idx+3]=150; }
       else { bimg.data[idx]=255; bimg.data[idx+1]=90; bimg.data[idx+2]=60; bimg.data[idx+3]=170; }
       // 实际覆盖范围(计入墙体遮挡)：运动层或存在层任一层覆盖即绿，否则红(盲区)
-      if(m||p){ aimg.data[idx]=46; aimg.data[idx+1]=160; aimg.data[idx+2]=67; aimg.data[idx+3]=150; }
+      if(f){ aimg.data[idx]=111; aimg.data[idx+1]=195; aimg.data[idx+2]=255; aimg.data[idx+3]=145; }
+      else if(m||p){ aimg.data[idx]=46; aimg.data[idx+1]=160; aimg.data[idx+2]=67; aimg.data[idx+3]=150; }
       else { aimg.data[idx]=255; aimg.data[idx+1]=90; aimg.data[idx+2]=60; aimg.data[idx+3]=150; }
     }
   }
   cctx.putImageData(cimg,0,0); bctx.putImageData(bimg,0,0); actx.putImageData(aimg,0,0);
-  covCache={ covUrl:cc.toDataURL(), blindUrl:bc.toDataURL(), actualUrl:ac.toDataURL(), motionPct:covM/total, presencePct:covP/total };
+  covCache={ covUrl:cc.toDataURL(), blindUrl:bc.toDataURL(), actualUrl:ac.toDataURL(), motionPct:covM/total, presencePct:covP/total, fusionPct:covF/total };
   if(covPlane){
     const tex=new THREE.CanvasTexture(ac);
     if(covPlane.material.map) covPlane.material.map.dispose();
@@ -2081,14 +2335,15 @@ function computeCoverage(){
 }
 function updateStats(){
   if(!covCache) computeCoverage();
-  const cm=covCache.motionPct, cp=covCache.presencePct;
+  const cm=covCache.motionPct, cp=covCache.presencePct, cf=covCache.fusionPct||0;
   document.getElementById('stats').innerHTML =
     `<div>传感器数量：<b>${sensors.length}</b></div>`+
     `<div>运动层覆盖率：<span class="big" style="color:var(--red)">${(cm*100).toFixed(1)}%</span></div>`+
     `<div>存在层覆盖率：<span class="big" style="color:var(--orange)">${(cp*100).toFixed(1)}%</span></div>`+
+    `<div>融合模式覆盖率：<span class="big" style="color:#6fc3ff">${(cf*100).toFixed(1)}%</span></div>`+
     (sensors.length? `<div class="muted" style="margin-top:6px">覆盖率已计入墙体遮挡：信号传播被墙阻断。</div>`+
-      `<div class="muted">挂高 2.8m 时：运动半径 ${BASE_MOTION}m / 存在半径 ${BASE_PRESENCE}m；</div>`+
-      `<div class="muted">当前挂高比例已按各传感器挂高自动缩放。</div>` : '');
+      `<div class="muted">官方参考：挂高 2.8m 时运动直径 14m、存在直径 10m；这是参考挂高下的标称检测范围，不是极限范围。</div>`+
+      `<div class="muted">当前挂高范围由参考视场角与地面交线计算；X 正值向右，Y 正值向顶视图下方。</div>` : '');
 }
 
 // ---------- 列表 ----------
@@ -2098,7 +2353,7 @@ function renderList(){
   if(sensors.length===0){ box.innerHTML='<div class="muted">暂无传感器</div>'; return; }
   box.innerHTML = sensors.map(s=>{
     const sel = s.id===state.selected;
-    const {rm,rp}=radii(s);
+    const {rm,rp,rf}=radii(s);
     const wd=nearestWallDistances(s.x,s.y);
     return `<div class="sensor-item ${sel?'sel':''}" data-list-id="${s.id}">
       <div class="top"><b>${escText(sensorName(s))}</b>
@@ -2113,14 +2368,36 @@ function renderList(){
         <span class="muted" style="width:54px">挂高(m)</span>
         <input type="number" min="0.1" step="0.1" value="${s.mountH}" data-h="${s.id}">
       </div>
+      <div class="row" style="margin-top:4px">
+        <span class="muted" style="width:76px">运动参考直径</span>
+        <input type="number" min="0" step="0.1" value="${s.motionDiameter??BASE_MOTION*2}" data-md="${s.id}">
+      </div>
+      <div class="row" style="margin-top:4px">
+        <span class="muted" style="width:76px">存在参考直径</span>
+        <input type="number" min="0" step="0.1" value="${s.presenceDiameter??BASE_PRESENCE*2}" data-pd="${s.id}">
+      </div>
+      <div class="row" style="margin-top:4px">
+        <span class="muted" style="width:76px">融合参考直径</span>
+        <input type="number" min="0" step="0.1" value="${s.fusionDiameter??baseSensorParams().fusionD}" data-fd="${s.id}">
+      </div>
+      <div class="row" style="margin-top:4px">
+        <span class="muted" style="width:54px">X 倾角</span>
+        <input type="number" min="-80" max="80" step="1" value="${radii(s).angleX}" data-angle-x="${s.id}">
+      </div>
+      <div class="row" style="margin-top:4px">
+        <span class="muted" style="width:54px">Y 倾角</span>
+        <input type="number" min="-80" max="80" step="1" value="${radii(s).angleY}" data-angle-y="${s.id}">
+      </div>
       <div class="muted" style="margin-top:6px;line-height:1.65">最近墙面<br>上 ${wd.up.toFixed(2)}m · 下 ${wd.down.toFixed(2)}m · 左 ${wd.left.toFixed(2)}m · 右 ${wd.right.toFixed(2)}m</div>
       <div class="muted" style="margin-top:2px">近裁剪 ${state.nearDist.toFixed(2)}m · 远(斜距) 运动 ${Math.hypot(s.mountH,rm).toFixed(2)}m / 存在 ${Math.hypot(s.mountH,rp).toFixed(2)}m</div>
-      <div class="muted" style="margin-top:2px">张角 运动 ${(2*Math.atan2(rm,s.mountH)*180/Math.PI).toFixed(0)}° · 存在 ${(2*Math.atan2(rp,s.mountH)*180/Math.PI).toFixed(0)}°</div>
+      <div class="muted" style="margin-top:2px">2.8m 参考直径：运动 ${(s.motionDiameter??BASE_MOTION*2).toFixed(1)}m · 存在 ${(s.presenceDiameter??BASE_PRESENCE*2).toFixed(1)}m · 融合 ${(s.fusionDiameter??BASE_FUSION*2).toFixed(1)}m</div>
+      <div class="muted" style="margin-top:2px">当前挂高地面直径：运动 ${(rm*2).toFixed(2)}m · 存在 ${(rp*2).toFixed(2)}m · 融合 ${(rf*2).toFixed(2)}m</div>
+      <div class="muted" style="margin-top:2px">张角 运动 ${(2*coneHalfAngle(s,rm)*180/Math.PI).toFixed(0)}° · 存在 ${(2*coneHalfAngle(s,rp)*180/Math.PI).toFixed(0)}° · 融合 ${(2*coneHalfAngle(s,rf)*180/Math.PI).toFixed(0)}° · X ${radii(s).angleX.toFixed(0)}° / Y ${radii(s).angleY.toFixed(0)}°</div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-list-id]').forEach(el=>{
     el.addEventListener('click', e=>{
-      if(e.target.dataset.del||e.target.dataset.m||e.target.dataset.p||e.target.dataset.h||e.target.dataset.sname) return;
+      if(e.target.matches('input,button')) return;
       state.selected = +el.dataset.listId; state.selectedPerson=null; renderAll();
     });
   });
@@ -2135,8 +2412,23 @@ function renderList(){
   box.querySelectorAll('[data-p]').forEach(c=>c.addEventListener('change', e=>{
     getSensor(+c.dataset.p).presence=e.target.checked; renderAll();
   }));
+  box.querySelectorAll('[data-md]').forEach(i=>i.addEventListener('change', e=>{
+    const v=parseFloat(e.target.value); if(v>=0){ getSensor(+i.dataset.md).motionDiameter=v; renderAll(); }
+  }));
+  box.querySelectorAll('[data-pd]').forEach(i=>i.addEventListener('change',e=>{
+    const v=parseFloat(e.target.value);if(v>=0){getSensor(+i.dataset.pd).presenceDiameter=v;renderAll();}
+  }));
+  box.querySelectorAll('[data-fd]').forEach(i=>i.addEventListener('change',e=>{
+    const v=parseFloat(e.target.value);if(v>=0){getSensor(+i.dataset.fd).fusionDiameter=v;renderAll();}
+  }));
   box.querySelectorAll('[data-h]').forEach(i=>i.addEventListener('change', e=>{
     const v=parseFloat(e.target.value); if(v>0){ getSensor(+i.dataset.h).mountH=v; buildRoom(); fitCamera(); renderAll(); }
+  }));
+  box.querySelectorAll('[data-angle-x]').forEach(i=>i.addEventListener('change',e=>{
+    const v=clamp(parseFloat(e.target.value)||0,-80,80),s=getSensor(+i.dataset.angleX);s.angleX=v;delete s.angle;renderAll();
+  }));
+  box.querySelectorAll('[data-angle-y]').forEach(i=>i.addEventListener('change',e=>{
+    const v=clamp(parseFloat(e.target.value)||0,-80,80),s=getSensor(+i.dataset.angleY);s.angleY=v;renderAll();
   }));
   box.querySelectorAll('[data-sname]').forEach(i=>i.addEventListener('change', e=>{
     const obj=getSensor(+i.dataset.sname); if(!obj) return;
@@ -2154,7 +2446,8 @@ function renderPersonList(){
     const status = sc.mH<=0 ? '<span style="color:#ff6b6b">未被任何传感器扫描</span>'
       : (sc.mH>=p.height ? `<span style="color:#2ea043">运动全覆盖 (扫描到 ${sc.mH.toFixed(2)}m)</span>`
       : `<span style="color:#ffae3b">运动扫描到 ${sc.mH.toFixed(2)}m / 身高 ${p.height.toFixed(2)}m</span>`);
-    const pStatus = (state.showPresence && sc.pH>0) ? ` · 存在扫描到 ${sc.pH.toFixed(2)}m` : '';
+    const pStatus=(state.showPresence&&sc.pH>0)?` · 存在扫描到 ${sc.pH.toFixed(2)}m`:'';
+    const fStatus=(state.showFusion&&sc.fH>0)?` · <span style="color:#6fc3ff">融合扫描到 ${sc.fH.toFixed(2)}m</span>`:'';
     return `<div class="sensor-item ${sel?'sel':''}" data-plist-id="${p.id}">
       <div class="top"><b>${escText(personName(p))}</b>
         <button class="danger" data-pdel="${p.id}" style="padding:2px 8px">删</button></div>
@@ -2165,7 +2458,7 @@ function renderPersonList(){
         <input type="number" min="0.5" step="0.05" value="${p.height}" data-ph="${p.id}">
       </div>
       <div class="muted" style="margin-top:6px;line-height:1.65">最近墙面<br>上 ${wd.up.toFixed(2)}m · 下 ${wd.down.toFixed(2)}m · 左 ${wd.left.toFixed(2)}m · 右 ${wd.right.toFixed(2)}m</div>
-      <div style="margin-top:5px;font-size:11px">${status}${pStatus}</div>
+      <div style="margin-top:5px;font-size:11px">${status}${pStatus}${fStatus}</div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-plist-id]').forEach(el=>{
@@ -2190,6 +2483,7 @@ function renderPersonList(){
 
 // ---------- 总渲染 ----------
 function renderAll(skipStats){
+  scanCache.clear();
   computeCoverage();   // 始终重算（含墙体遮挡），保证拖动/改参数时实时同步
   renderTop(); renderFront(); renderSide();
   sync3D(); syncLabelPool();
@@ -2212,6 +2506,7 @@ document.getElementById('btnFit').addEventListener('click', ()=>{
 document.getElementById('ckMotion').addEventListener('change', e=>{ state.showMotion=e.target.checked; renderAll(); });
 document.getElementById('ckPresence').addEventListener('change', e=>{ state.showPresence=e.target.checked; renderAll(); });
 document.getElementById('ckBlind').addEventListener('change', e=>{ state.showBlind=e.target.checked; renderAll(); });
+document.getElementById('ckFusion').addEventListener('change', e=>{ state.showFusion=e.target.checked; renderAll(); });
 document.getElementById('ckLabels').addEventListener('change', e=>{ state.showLabels=e.target.checked; updateLabelPositions(); });
 document.getElementById('inNear').addEventListener('input', e=>{
   state.nearDist=Math.max(0, parseFloat(e.target.value)||0);
@@ -2229,8 +2524,8 @@ document.getElementById('btnAddPerson').addEventListener('click', ()=> addPerson
 document.getElementById('btnSave').addEventListener('click', ()=>{
   const data = {
     L,W,H,
-    view3d:{nearDist:state.nearDist},
-    sensors: sensors.map(s=>({id:s.id,name:sensorName(s),x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence})),
+    view3d:{nearDist:state.nearDist,showFusion:state.showFusion},
+    sensors:sensors.map(s=>({id:s.id,name:sensorName(s),x:+s.x.toFixed(3),y:+s.y.toFixed(3),mountH:s.mountH,motion:s.motion,presence:s.presence,motionDiameter:s.motionDiameter??BASE_MOTION*2,presenceDiameter:s.presenceDiameter??BASE_PRESENCE*2,fusionDiameter:s.fusionDiameter??baseSensorParams().fusionD,angleX:radii(s).angleX,angleY:radii(s).angleY})),
     persons: persons.map(p=>({id:p.id,name:personName(p),x:+p.x.toFixed(3),y:+p.y.toFixed(3),height:p.height,heading:p.heading||0})),
     floorplan: svgData ? { format:svgData.format||'SVG', scale:svgData.scale, thickness:svgData.thickness, wallHeight:svgData.wallHeight, fileName:svgData.fileName,
                            minX:svgData.minX, minY:svgData.minY, maxX:svgData.maxX, maxY:svgData.maxY, raw:svgData.raw, autoWalls:svgData.autoWalls||[], manualWalls:svgData.manualWalls||[], walls:svgData.walls,
@@ -2252,9 +2547,9 @@ document.getElementById('fileInput').addEventListener('change', e=>{
       const d=JSON.parse(r.result);
       L=d.L||L; W=d.W||W; H=d.H||H;
       document.getElementById('inL').value=L; document.getElementById('inW').value=W; document.getElementById('inH').value=H;
-      state.nearDist=Math.max(0, Number(d.view3d?.nearDist ?? state.nearDist));
-      document.getElementById('inNear').value=state.nearDist;
-      sensors=(d.sensors||[]).map(s=>({id:s.id, name:String(s.name||`传感器${s.id}`), x:s.x, y:s.y, mountH:s.mountH??2.8, motion:s.motion!==false, presence:s.presence!==false}));
+      state.nearDist=Math.max(0, Number(d.view3d?.nearDist ?? state.nearDist));state.showFusion=d.view3d?.showFusion!==false;
+      document.getElementById('inNear').value=state.nearDist;document.getElementById('ckFusion').checked=state.showFusion;
+      sensors=(d.sensors||[]).map(s=>({id:s.id,name:String(s.name||`传感器${s.id}`),x:s.x,y:s.y,mountH:s.mountH??baseSensorParams().h,motion:s.motion!==false,presence:s.presence!==false,motionDiameter:Math.max(0,Number(s.motionDiameter??baseSensorParams().motionD)),presenceDiameter:Math.max(0,Number(s.presenceDiameter??baseSensorParams().presenceD)),fusionDiameter:Math.max(0,Number(s.fusionDiameter??baseSensorParams().fusionD)),angleX:clamp(Number(s.angleX??s.angle??baseSensorParams().angleX),-80,80),angleY:clamp(Number(s.angleY??baseSensorParams().angleY),-80,80)}));
       uid = sensors.reduce((m,s)=>Math.max(m,s.id),0)+1;
       persons=(d.persons||[]).map(p=>({id:p.id, name:String(p.name||`人物${p.id}`), x:p.x, y:p.y, height:p.height||1.7, heading:p.heading||0}));
       uidP = persons.reduce((m,p)=>Math.max(m,p.id),0)+1;
